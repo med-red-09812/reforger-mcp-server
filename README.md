@@ -1,5 +1,10 @@
 # Reforger MCP
 
+Fork preparation: see [Stable/Experimental profiles and validation state](docs/workbench-native-reload.md#fork-stable-and-experimental-profiles)
+and the [enfusion-mcp migration comparison](docs/enfusion-migration.md). The
+1.9 profile is a validation candidate; live acceptance and any client cutover
+are separate steps.
+
 Tool calls are logged automatically with bounded storage and session summaries;
 see [tool activity logging](docs/tool-activity.md).
 
@@ -15,7 +20,7 @@ For Workbench and independent peer logs, configure `logDirectories` and use [con
 
 The same Workbench configuration enables [native script compilation/reload](docs/workbench-scripts.md). Reload uses a temporary in-process adapter, without menus, keyboard input or a foreground requirement; its native return value confirms completion. The exact supported binary profile and update procedure are [documented separately](docs/workbench-native-reload.md). No project bridge is installed.
 
-[Opening a world](docs/workbench-worlds.md) uses that same native dispatcher. It creates World Editor if needed, opens a supplied `.ent` resource, and reports the native loaded world path. It requires no focus or keyboard input and refuses unsaved/play state. Script reload still requires World Editor to be closed.
+[Opening a world](docs/workbench-worlds.md) uses that same native dispatcher. It creates World Editor if needed, opens a supplied `.ent` resource, and reports the native loaded world path. It requires no focus or keyboard input and refuses unsaved/play state. Script reload supports an open World Editor and stops embedded Play first.
 
 [Entity and prefab tools](docs/workbench-worlds.md#entity-creation-and-prefabs) create entities, export named entities as new prefabs, and place GUID-qualified prefab instances through owning native functions. They work with the loaded project's addons, require no bridge scripts, and leave world changes unsaved. Export waits for resource-database acknowledgement before reporting completion; asset export itself is outside world undo.
 
@@ -73,6 +78,7 @@ Start with `workbench_status`, then use `pak_search_text` for API declarations, 
 | `workbench_status` | Combined `workbench` process/window observations and `pak` catalogue freshness, source coverage and revision; project readiness remains unverified. |
 | `workbench_project_context` | Observe the actual current project and loaded/available addons, mounted paths, on-disk dependencies and local module declarations; return a token for packed/unpacked project preparation. |
 | `workbench_script_status` | Inspect native editor windows/dialogs and current compiler output/diagnostics, which may be historical. |
+| `workbench_native_probe` | Verify the exact-build main-thread dispatcher and allocation cleanup without reload, world editing, Play or assertion suppression. |
 | `workbench_reload_scripts` | Full native validation/reload of Game and Workbench modules; takes only `processId`. |
 | `workbench_open_project` | Directly launch an absolute `.gproj` path with configured dependency directories; refuse if Workbench is running. |
 | `workbench_open_world` | Open one `.ent` world through the native hook; return completion or a pending operation ID. |

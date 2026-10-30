@@ -16,6 +16,7 @@ public sealed record Configuration
     public WorkbenchConfiguration? Workbench { get; init; }
     public Dictionary<string, WorkbenchConfiguration> Workbenches { get; init; } = [];
     public LocalHttpConfiguration? LocalHttp { get; init; }
+    public bool AutomaticResourceLeakSuppression { get; init; } = true;
     public Dictionary<string, string> CaptureExecutables { get; init; } = [];
     public Dictionary<string, string> LogDirectories { get; init; } = [];
     public int AnalysisTimeoutSeconds { get; init; } = 1800;

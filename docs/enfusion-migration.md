@@ -59,7 +59,7 @@ process identity. The legacy configuration remains supported.
   },
   "experimental": {
     "executable": "D:/SteamLibrary/steamapps/common/Arma Reforger Experimental Tools/Workbench/ArmaReforgerWorkbenchSteamDiag.exe",
-    "addonDirectories": ["D:/SteamLibrary/steamapps/common/Arma Reforger Experimental Tools/Game/addons"],
+    "addonDirectories": ["D:/SteamLibrary/steamapps/common/Arma Reforger Experimental/addons"],
     "profileDirectory": "${Documents}/My Games/ReforgerMcpExperimental",
     "logDirectory": "${Documents}/My Games/ReforgerMcpExperimental/logs",
     "runtimePort": 5776
@@ -70,6 +70,9 @@ process identity. The legacy configuration remains supported.
 Paths are examples; configure the actual installed dependencies. A runtime port
 is an intended connection, not proof that the selected editor is listening on it.
 Inspect setup and explicitly configure/install through that editor as necessary.
+PAK stores reject linked paths. If a Tools `Game` directory is a junction, name
+the actual game installation's `addons` directory in source configuration rather
+than weakening that guard. The executable may remain in the Tools installation.
 
 `workbench_status` inventories both installations. Launch with
 `workbench_open_project(projectPath, installation="experimental")`; launch still

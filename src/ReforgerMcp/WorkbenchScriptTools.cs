@@ -16,6 +16,11 @@ public sealed class WorkbenchScriptTools(WorkbenchSession scripts)
     [Description("Observe Workbench processes, windows and the existing compiler buffer; does not compile scripts.")]
     public Task<object> Status(CancellationToken cancellationToken = default, int? processId = null) => Report(() => scripts.Status(cancellationToken, processId));
 
+    [McpServerTool(Name = "workbench_native_probe", ReadOnly = false, Destructive = false, OpenWorld = false)]
+    [Description("Run a harmless native callback on the selected editor's main thread. Verifies exact-build dispatch, thread identity and allocation cleanup without reload, world editing, Play or assertion suppression. Allocates temporary adapter memory in Workbench; resolve dialogs first.")]
+    public Task<object> Probe(int processId, CancellationToken cancellationToken = default)
+        => Report(() => scripts.Probe(processId, cancellationToken));
+
     [McpServerTool(Name = "workbench_resource_leak_assertion", ReadOnly = false, Destructive = false, OpenWorld = false)]
     [Description("action=status|suppress for the process-local Resources are leaking assertion. Automatic monitor also suppresses it; logging and existing dialogs remain unchanged.")]
     public Task<object> ResourceLeakAssertion(string action, int processId, CancellationToken cancellationToken = default)

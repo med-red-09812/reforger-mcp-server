@@ -13,16 +13,11 @@ if (Test-Path -LiteralPath (Join-Path $root 'LICENSE')) {
     Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination $destination
 }
 New-Item -ItemType Directory -Path (Join-Path $destination 'docs') | Out-Null
-Copy-Item -LiteralPath (Join-Path $root 'docs/workbench-runtime.md') -Destination (Join-Path $destination 'docs')
-Copy-Item -LiteralPath (Join-Path $root 'docs/project-context.md') -Destination (Join-Path $destination 'docs')
-Copy-Item -LiteralPath (Join-Path $root 'docs/shared-server.md') -Destination (Join-Path $destination 'docs')
-Copy-Item -LiteralPath (Join-Path $root 'docs/workbench-targeting.md') -Destination (Join-Path $destination 'docs')
+Get-ChildItem -LiteralPath (Join-Path $root 'docs') -Filter '*.md' -File |
+    Copy-Item -Destination (Join-Path $destination 'docs')
 $adapterDirectory = Join-Path $destination 'adapters/workbench/Scripts/WorkbenchGame'
 New-Item -ItemType Directory -Path $adapterDirectory -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'adapters/workbench/Scripts/WorkbenchGame/RST_Runtime.c') -Destination $adapterDirectory
-foreach ($document in @('workspace.md','releasing.md','modding-workflows.md','system-validation.md','pak-modding.md','workbench.md','workbench-scripts.md','workbench-native-reload.md','workbench-worlds.md','workbench-play.md','workbench-multiplayer.md','console-logs.md','workbench-windows.md','window-capture.md')) {
-    Copy-Item -LiteralPath (Join-Path $root "docs/$document") -Destination (Join-Path $destination 'docs')
-}
 New-Item -ItemType Directory -Path (Join-Path $destination 'scripts') | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'scripts/setup-workbench.ps1') -Destination (Join-Path $destination 'scripts')
 New-Item -ItemType Directory -Path (Join-Path $destination 'THIRD-PARTY') | Out-Null
@@ -63,15 +58,15 @@ if ($forbidden.Count) { throw "Package contains local/debug/game data: $($forbid
 $privatePrefixes = @($root, [Environment]::GetFolderPath('UserProfile')) |
     Where-Object { $_ } | ForEach-Object { $_.Replace('\','/') }
 foreach ($file in $packageFiles | Where-Object Extension -In @('.json','.md','.txt','.java','.ps1')) {
-    $content = (Get-Content -LiteralPath $file.FullName -Raw).Replace('\\','/').Replace('\','/')
+    $content = (Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8).Replace('\\','/').Replace('\','/')
     foreach ($prefix in $privatePrefixes) {
-        if ($content.Contains($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($content.IndexOf($prefix, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
             throw "Package includes this builder's private path in $($file.FullName)"
         }
     }
 }
 foreach ($file in $packageFiles | Where-Object Extension -EQ '.md') {
-    foreach ($match in [regex]::Matches((Get-Content -LiteralPath $file.FullName -Raw), '\]\(([^)]+)\)')) {
+    foreach ($match in [regex]::Matches((Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8), '\]\(([^)]+)\)')) {
         $target = $match.Groups[1].Value.Split('#')[0]
         if (!$target -or $target -match '^[a-z]+:|^/') { continue }
         if (!(Test-Path -LiteralPath (Join-Path $file.DirectoryName $target))) {

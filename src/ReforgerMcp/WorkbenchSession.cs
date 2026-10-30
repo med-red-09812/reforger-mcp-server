@@ -78,6 +78,16 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
         };
     }, ct);
 
+    public Task<object> Probe(int processId, CancellationToken ct) => Start(processId, token =>
+    {
+        using var process = SelectProcess(processId);
+        var observed = Windows(process.Id);
+        RequiredWindow(observed, ResourceManager);
+        if (observed.Any(IsModal) || observed.Any(w => !w.Current.IsEnabled))
+            throw Blocked(process, "Resolve editor dialogs before native compatibility verification.");
+        return NativeWorkbench.Execute(process, token, probe: true);
+    }, ct);
+
     public Task<object> Reload(int processId, CancellationToken ct)
     {
         if (processId <= 0) throw new ArgumentException("processId must come from workbench_script_status.");

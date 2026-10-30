@@ -64,4 +64,83 @@ Live evidence on 2026-10-23 is retained in that directory's `leak-candidate-flag
 
 Local development evidence is retained outside distribution: `.temp/local/evidence/native-hook-*` and Ghidra queries under `.temp/artifacts/native-index/queries/`. Ghidra's full reload decompilation is query `4b7bb9d698054b28994777e58a192c6d`; the singleton getter is `a29b67b519fb441ab8d8ffb3a4c3aeca`. Research artifacts contain installation-specific data and are not shipped.
 
+## Fork: Stable and Experimental profiles
+
+The fork retains the Stable identity above and stages **Workbench 1.9.0.10** with
+SHA-256 `aeaad3d40483c96697ca7d9618979abd8c0b1422ec95fbb14437050546aef657`.
+Its Qt Core, Gui and Widgets hashes match the Stable modules. Installation labels
+do not select native addresses: the observed executable hash selects
+`NativeWorkbenchProfile`, and all embedded image addresses pass through that
+profile. An absent address or unreviewed API slot fails closed. The legacy
+configuration still works; [dual installation setup](enfusion-migration.md#stable-and-experimental-in-one-server)
+keeps per-installation executable, dependencies, runtime port, profile and logs.
+
+Important verified static changes in the 1.9 candidate:
+
+- Full reload owner `0x22caf0`; application singleton/global busy byte
+  `0x3e98de8` / `0x3e98e35`; app busy/settings members `+0x1656` / `+0x1608`.
+- Full Play owner `0x28a340`, retaining its additional lifecycle branch. The
+  helper `0x28a420` is not a substitute for that owner.
+- World/prefab opener `0x28e6d0`. World Editor document/API members remain
+  `+0x120` / `+0x128`, and document path remains `+0x50`.
+- Explicit WorldEditorAPI slot correspondences account for inserted methods:
+  `0x1c8 -> 0x1d0`, `0x1d8 -> 0x1e0`, `0x238 -> 0x240`,
+  `0x318 -> 0x320`, `0x320 -> 0x330`, `0x328 -> 0x338`, and
+  `0x478 -> 0x498`. Other interface layouts must not receive these shifts.
+- NET API owner `0x234450`, enabled/port field globals `0x3be65c0` / `0x3be65c4`,
+  settings persistence `0x2364b0`. Live field-ID checks still require 8 and 9.
+- Resource-leak latch `0x3fc2bf0`, checked against the relocated teardown branch.
+
+Evidence includes exact PE hashes, instruction/caller correspondence, named
+import entries, MSVC RTTI, method registration names, focused Ghidra
+disassembly/decompilation and an independent static ABI review. Similar prefixes
+alone were not sufficient: identical wrapper shapes were disambiguated through
+registrations/callers, and virtual slots through their owning interface. Ghidra
+pseudocode remains inferred evidence. Raw game bytes, derived code and local
+analysis databases are not distributed.
+
+The full-program Ghidra preparation was interrupted when host free memory fell
+to about 1.1 GiB; its incomplete data is not a prepared index or acceptance.
+Focused passes used separately hash-checked snapshots, a smaller heap and no
+whole-program analysis. Their evidence is local and is not a substitute for
+preparing an `engine_*` database when that capability is needed.
+
+### Validation state
+
+The server builds, and offline checks cover both profiles' emitted callbacks,
+address/slot coverage, callback-size bounds, exact-hash refusal, installation
+ambiguity, runtime-port separation, foreign same-named processes and stale
+process identities. Existing PAK-search and tool-activity suites also pass.
+
+**Experimental live acceptance is pending.** Stable 1.8.0.13 has passed the
+harmless owning-thread probe, valid/invalid/recovered reloads (including stopping
+Play), world opening and missing/dirty/wrong-world refusals, entity/component
+creation, typed property editing, Undo/Redo, prefab export/placement and
+save/reopen readback. The profile adapter compiled and matched its build/profile/
+port handshake; live `Add(6,7)` returned 13 and `SetValue(42)`/`GetValue()` read
+back 42. Maximized-window screenshot capture also passed after initial frame
+geometry reconciliation. A format-conversion dialog timed out the first world
+open; its uncertain result and retained allocations were preserved, the dialog
+was resolved through MCP, and the callback release was verified before later
+operations. Subsequent open completed with allocation cleanup. One failed
+reload's inline log correlation exceeded its budget and correctly reported
+unavailable; native failure and the fixture's syntax error were independently
+observed. Recovery compiled successfully; its resource errors include stale
+Workbench plugin references to addons absent from the isolated project.
+
+Before calling 1.9 ready, repeat the applicable checks with its owning profile,
+including prefab definition/child creation, array editing and Play/runtime
+transitions. Multiplayer settings/launch lifecycle remains a separate live
+check; compilation alone does not establish dedicated-server or peer readiness.
+Preserve uncertain operations and failed evidence.
+
+No active MCP registration has been replaced by this work.
+
+For controlled candidate verification, `automaticResourceLeakSuppression: false`
+disables the background suppression monitor. Explicit native operations retain
+their existing per-operation suppression behavior. The default remains true for
+legacy configurations. The verification configuration disables the monitor so
+MCP discovery/status testing cannot automatically write to an editor opened by
+someone else, and the harmless thread probe can precede lifecycle mutations.
+
 

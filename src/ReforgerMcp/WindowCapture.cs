@@ -14,6 +14,13 @@ public sealed class WindowCapture(Configuration configuration) : IDisposable
 {
     private readonly object gate = new();
     private readonly SemaphoreSlim captureGate = new(1, 1);
+    private static void ValidateDimensions(int width, int height, int frameCount)
+    {
+        if (width <= 0 || height <= 0 || (long)width * height > 33_177_600)
+            throw new InvalidOperationException("Unsupported capture dimensions (maximum 33,177,600 source pixels).");
+        if ((long)width * height * 4 * frameCount > 256L * 1024 * 1024)
+            throw new InvalidOperationException("Sequence exceeds 256 MiB source-frame budget. Request fewer frames.");
+    }
     private Dictionary<string, Selection> selections = [];
     private sealed class Selection : IDisposable
     {
@@ -133,10 +140,9 @@ public sealed class WindowCapture(Configuration configuration) : IDisposable
                 using var device = CaptureNative.CreateDevice();
                 var item = selected.Item;
                 var size = item.Size;
-                if (size.Width <= 0 || size.Height <= 0 || (long)size.Width * size.Height > 33_177_600)
-                    throw new InvalidOperationException("Unsupported capture dimensions (maximum 33,177,600 source pixels).");
-                if ((long)size.Width * size.Height * 4 * frameCount > 256L * 1024 * 1024)
-                    throw new InvalidOperationException("Sequence exceeds 256 MiB source-frame budget. Request fewer frames.");
+                var selectionSize = size;
+                ValidateDimensions(size.Width, size.Height, frameCount);
+                var initialGeometryAdjusted = false;
                 using var pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, size);
                 using var session = pool.CreateCaptureSession(item);
                 session.IsCursorCaptureEnabled = false;
@@ -152,14 +158,32 @@ public sealed class WindowCapture(Configuration configuration) : IDisposable
                     while (frames.Count < frameCount)
                     {
                         await arrived.Reader.ReadAsync(timeout.Token);
-                        using var frame = pool.TryGetNextFrame();
-                        if (frame is null) continue;
-                        if (frame.ContentSize.Width != size.Width || frame.ContentSize.Height != size.Height)
-                            throw new InvalidOperationException("Window resized during capture. List windows again before another capture.");
-                        if (frames.Count > 0 && frame.SystemRelativeTime <= frames[^1].Time) continue;
-                        var acquiredAt = DateTimeOffset.UtcNow;
-                        var copy = await SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface).AsTask(timeout.Token);
-                        frames.Add((copy, frame.SystemRelativeTime, acquiredAt));
+                        var recreate = false;
+                        using (var frame = pool.TryGetNextFrame())
+                        {
+                            if (frame is null) continue;
+                            if (frame.ContentSize.Width != size.Width || frame.ContentSize.Height != size.Height)
+                            {
+                                // Windows can report maximized invisible borders in Item.Size.
+                                // Establish the actual frame geometry before retaining any pixels.
+                                if (frames.Count > 0 || initialGeometryAdjusted)
+                                    throw new InvalidOperationException("Window resized during capture. List windows again before another capture.");
+                                size = frame.ContentSize;
+                                ValidateDimensions(size.Width, size.Height, frameCount);
+                                initialGeometryAdjusted = true;
+                                recreate = true;
+                            }
+                            else
+                            {
+                                if (frames.Count > 0 && frame.SystemRelativeTime <= frames[^1].Time) continue;
+                                var acquiredAt = DateTimeOffset.UtcNow;
+                                var copy = await SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface).AsTask(timeout.Token);
+                                frames.Add((copy, frame.SystemRelativeTime, acquiredAt));
+                            }
+                        }
+                        // Return the old frame before rebuilding its pool. Never encode
+                        // undefined padding outside ContentSize or mix sequence geometries.
+                        if (recreate) pool.Recreate(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, size);
                     }
                     session.Dispose();
                     var results = new List<CapturedWindow>();
@@ -196,6 +220,7 @@ public sealed class WindowCapture(Configuration configuration) : IDisposable
                             executable = selected.Executable, windowTitle = Title(selected.Handle),
                             capturedAt = captured.AcquiredAt, frameSystemRelativeTicks = frameTime.Ticks,
                             sourceWidth = content.Width, sourceHeight = content.Height, width, height,
+                            selectionWidth = selectionSize.Width, selectionHeight = selectionSize.Height, initialGeometryAdjusted,
                             mimeType = "image/png", backend = "Windows.Graphics.Capture",
                             scope = "One window frame, without cursor. No activation, desktop capture, scripted bridge or injection. " +
                                 "Separate dialogs are separate capture_windows entries. A frame is not proof of application readiness; an application may display old or blank content."
