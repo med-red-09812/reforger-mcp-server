@@ -27,7 +27,7 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
 
     internal Task<object> ObserveProject(int processId, CancellationToken ct) => Run(token =>
     {
-        using var process = SelectProcess();
+        using var process = SelectProcess(processId);
         if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_status.");
         var windows = Windows(process.Id);
         RequiredWindow(windows, ResourceManager);
@@ -50,9 +50,9 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
             id, completed, "workbench_operation", knownRevision, details);
     }
 
-    public Task<object> Status(CancellationToken ct) => Run(_ =>
+    public Task<object> Status(CancellationToken ct, int? processId = null) => Run(_ =>
     {
-        using var process = SelectProcess();
+        using var process = SelectProcess(processId);
         var windows = Windows(process.Id);
         var editor = windows.SingleOrDefault(w => w.Current.AutomationId == ScriptEditor);
         var output = editor is null ? null : Output(editor);
@@ -78,10 +78,20 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
         };
     }, ct);
 
+    public Task<object> Probe(int processId, CancellationToken ct) => Start(processId, token =>
+    {
+        using var process = SelectProcess(processId);
+        var observed = Windows(process.Id);
+        RequiredWindow(observed, ResourceManager);
+        if (observed.Any(IsModal) || observed.Any(w => !w.Current.IsEnabled))
+            throw Blocked(process, "Resolve editor dialogs before native compatibility verification.");
+        return NativeWorkbench.Execute(process, token, probe: true);
+    }, ct);
+
     public Task<object> Reload(int processId, CancellationToken ct)
     {
         if (processId <= 0) throw new ArgumentException("processId must come from workbench_script_status.");
-        return Start(token => ExecuteCore(processId, token), ct);
+        return Start(processId, token => ExecuteCore(processId, token), ct);
     }
 
     public async Task<object> OpenWorld(string resourceName, int processId, CancellationToken ct, bool prefab = false)
@@ -93,9 +103,9 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
             throw new ArgumentException("Prefab opening requires a GUID-qualified resource name: {GUID}path.et.");
         if (processId <= 0) throw new ArgumentException("processId must come from workbench_script_status.");
         var world = resourceName.Replace('\\', '/');
-        return await Start(token =>
+        return await Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_script_status.");
             var windows = Windows(process.Id);
             RequiredWindow(windows, ResourceManager);
@@ -116,9 +126,9 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
     {
         if (action is not ("status" or "start" or "stop")) throw new ArgumentException("action must be status, start or stop.");
         if (processId <= 0) throw new ArgumentException("processId must come from workbench_script_status.");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_script_status.");
             var windows = Windows(process.Id);
             RequiredWindow(windows, ResourceManager);
@@ -130,7 +140,7 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
         }, ct);
     }
 
-    private async Task<object> Start(Func<CancellationToken, object> operation, CancellationToken ct)
+    private async Task<object> Start(int processId, Func<CancellationToken, object> operation, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         OperationRecord record;
@@ -140,7 +150,7 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
             if (pending is not null) return new { state = "blocked", dispatched = false,
                 reason = "A native operation is pending. Poll it; this requested operation was not dispatched.",
                 poll = new { tool = "workbench_operation", arguments = new { operationId = pending.Id } } };
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             var pid = process.Id;
             var started = process.StartTime.ToUniversalTime().Ticks;
             // Only completed entries are evicted. The native lane still protects uncertain work.
@@ -160,7 +170,7 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
 
     private object ExecuteCore(int processId, CancellationToken ct)
     {
-        using var process = SelectProcess();
+        using var process = SelectProcess(processId);
         if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_script_status.");
         var windows = Windows(process.Id);
         if (windows.Any(IsModal)) throw Blocked(process, "Workbench has a modal dialog. Resolve it before reloading.");
@@ -193,31 +203,32 @@ public sealed partial class WorkbenchSession(Configuration configuration, Workbe
             result["diagnostics"] = System.Text.Json.JsonSerializer.SerializeToNode(logs.ReloadErrors(checkpoint, process, ct), Configuration.Json);
         return result;
     }
-    private Process SelectProcess() => SelectProcess(configuration);
-    internal static Process SelectProcess(Configuration configuration)
+    private Process SelectProcess(int? processId = null) => SelectProcess(configuration, processId);
+    internal static Process SelectProcess(Configuration configuration, int? requestedProcessId = null)
     {
-        var executable = configuration.Workbench?.Executable ?? throw new InvalidOperationException("Workbench is not configured.");
-        if (configuration.Workbench.ProcessId is { } processId)
+        if (requestedProcessId is { } pid)
         {
-            var process = Process.GetProcessById(processId);
+            var process = Process.GetProcessById(pid);
             try
             {
-                if (!string.Equals(process.MainModule?.FileName, executable, StringComparison.OrdinalIgnoreCase) ||
-                    process.StartTime.ToUniversalTime().Ticks != configuration.Workbench.ProcessStartedUtc?.UtcTicks)
-                    throw new InvalidOperationException("Configured Workbench process identity changed. Update the explicit process selection; no other instance was selected.");
+                _ = configuration.WorkbenchFor(process);
                 return process;
             }
             catch { process.Dispose(); throw; }
         }
-        var candidates = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executable));
+        var entries = configuration.WorkbenchEntries.Select(p => p.Value).ToArray();
+        if (entries.Length == 0) throw new InvalidOperationException("Workbench is not configured.");
+        var candidates = entries.SelectMany(w => Process.GetProcessesByName(Path.GetFileNameWithoutExtension(w.Executable)))
+            .DistinctBy(p => p.Id).ToArray();
         Process? selected = null;
         try
         {
             foreach (var candidate in candidates)
             {
                 if (candidate.HasExited) continue;
-                if (!string.Equals(candidate.MainModule?.FileName, executable, StringComparison.OrdinalIgnoreCase)) continue;
-                if (selected is not null) throw new InvalidOperationException("Multiple configured Workbench processes; close the extra instance before using script commands.");
+                if (!entries.Any(w => string.Equals(candidate.MainModule?.FileName, w.Executable, StringComparison.OrdinalIgnoreCase))) continue;
+                _ = configuration.WorkbenchFor(candidate);
+                if (selected is not null) throw new InvalidOperationException("Multiple configured Workbench processes; supply processId explicitly. No installation was selected.");
                 selected = candidate;
             }
             return selected ?? throw new InvalidOperationException("Configured Workbench is not running.");

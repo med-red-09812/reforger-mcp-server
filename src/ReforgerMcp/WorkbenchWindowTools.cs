@@ -14,7 +14,8 @@ public sealed class WorkbenchWindowTools(WorkbenchWindows windows)
     }
     [McpServerTool(Name = "workbench_windows", ReadOnly = true, OpenWorld = false)]
     [Description("List Workbench windows and fresh selection IDs. details=false returns headers with close-only capability; true includes text/buttons. Listing invalidates previous selections.")]
-    public Task<object> List(bool details = true, CancellationToken cancellationToken = default) => Report(() => details ? windows.List(cancellationToken) : windows.Headers(cancellationToken));
+    public Task<object> List(bool details = true, CancellationToken cancellationToken = default, int? processId = null)
+        => Report(() => details ? windows.List(cancellationToken, processId) : windows.Headers(cancellationToken, processId));
 
     [McpServerTool(Name = "workbench_window_action_status", ReadOnly = true, OpenWorld = false)]
     [Description("Poll native UI operationId. Pass knownRevision from the previous response to omit unchanged content; returned poll arguments include it. New dialog text/buttons and expired selections remain visible. details=true returns full observations. Polling preserves unchanged selection IDs.")]

@@ -15,11 +15,20 @@ public sealed class Workbench(Configuration configuration) : IDisposable
     {
         lock (gate)
         {
-            var config = configuration.Workbench;
-            if (config is null)
+            var entries = configuration.WorkbenchEntries.ToArray();
+            if (entries.Length == 0)
                 return new { state = "not_configured", message = "Configure workbench.executable and workbench.addonDirectories." };
+            if (entries.Length > 1)
+                return new { installations = entries.Select(p => new { installation = p.Key, status = StatusFor(p.Value, details) }).ToArray(),
+                    scope = "Separate installation configurations. Launch selects installation; live operations select the observed processId. No global channel switch." };
+            return StatusFor(entries[0].Value, details);
+        }
+    }
+
+    private object StatusFor(WorkbenchConfiguration config, bool details)
+    {
             var missing = MissingInputs(config);
-            var instances = Observe(config);
+            var instances = Observe(config).Where(p => p.Executable is null || p.Executable.Equals(config.Executable, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (!details)
                 return new
                 {
@@ -27,7 +36,7 @@ public sealed class Workbench(Configuration configuration) : IDisposable
                     missingInputs = missing, instances, projectReadiness = "unverified"
                 };
             object? lastLaunch = null;
-            if (launched is not null)
+            if (launched is not null && launched.StartInfo.FileName.Equals(config.Executable, StringComparison.OrdinalIgnoreCase))
             {
                 var exited = launched.HasExited;
                 lastLaunch = new
@@ -46,14 +55,13 @@ public sealed class Workbench(Configuration configuration) : IDisposable
                 scope = "OS process and window observations only. Window titles are not proof of the active project or successful initialization. " +
                     "lastLaunch records this server session's request, not current editor state; it is lost on server restart."
             };
-        }
     }
 
-    public object OpenProject(string projectPath, CancellationToken cancellationToken)
+    public object OpenProject(string projectPath, CancellationToken cancellationToken, string? installation = null)
     {
         lock (gate)
         {
-            var config = configuration.Workbench ?? throw new InvalidOperationException("Workbench is not configured.");
+            var config = configuration.SelectWorkbench(installation);
             if (string.IsNullOrWhiteSpace(projectPath) || !Path.IsPathFullyQualified(projectPath))
                 throw new ArgumentException("projectPath must be an absolute path to an existing .gproj file.");
             projectPath = Path.GetFullPath(projectPath);
@@ -89,6 +97,8 @@ public sealed class Workbench(Configuration configuration) : IDisposable
                     start.ArgumentList.Add("-addonsDir");
                     start.ArgumentList.Add(string.Join(",", config.AddonDirectories));
                 }
+                foreach (var (option, value) in new[] { ("-profile", config.ProfileDirectory), ("-logsDir", config.LogDirectory) })
+                    if (value is not null) { start.ArgumentList.Add(option); start.ArgumentList.Add(value); }
                 cancellationToken.ThrowIfCancellationRequested();
                 // Once Start is called, never retry or cancel/kill the editor because a client disconnected.
                 var process = Process.Start(start) ?? throw new InvalidOperationException("Process.Start returned no process. Inspect workbench_status before retrying.");
@@ -117,10 +127,8 @@ public sealed class Workbench(Configuration configuration) : IDisposable
     {
         lock (gate)
         {
-            var config = configuration.Workbench ?? throw new InvalidOperationException("Workbench is not configured.");
             using var process = Process.GetProcessById(processId);
-            if (!process.ProcessName.Equals(Path.GetFileNameWithoutExtension(config.Executable), StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Selected PID is not the configured Workbench process name.");
+            _ = configuration.WorkbenchFor(process);
             if (process.HasExited) return new { state = "exited", processId };
             // Only the explicitly selected process is terminated, never its children.
             // Windows permissions remain authoritative; access denial is reported.

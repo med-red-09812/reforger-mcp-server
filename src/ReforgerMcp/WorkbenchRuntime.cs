@@ -36,11 +36,12 @@ public sealed partial class WorkbenchSession
                     throw new ArgumentException("componentType and method must be identifiers of 1-96 ASCII letters, digits or underscores.");
         }
         var callCode = action is "prepare" or "call" ? RuntimeCall.Build(method!, arguments, returnType) : null;
-        return Start(token =>
+        if (action == "invoke") processId = runtimePrepared?.Pid ?? throw new ArgumentException("Unknown runtime preparation token.");
+        return Start(processId, token =>
         {
-            var port = configuration.Workbench?.RuntimePort ?? throw new InvalidOperationException(
+            using var process = SelectProcess(processId);
+            var port = configuration.WorkbenchFor(process).RuntimePort ?? throw new InvalidOperationException(
                 "Runtime adapter is not configured. Set workbench.runtimePort to the editor port and use workbench_runtime_setup(action=install). No alternate executor is used.");
-            using var process = SelectProcess();
             string receipt;
             RuntimeActivity? preparedActivity = null;
             if (action == "invoke")

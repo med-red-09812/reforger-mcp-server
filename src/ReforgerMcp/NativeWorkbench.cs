@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace ReforgerMcp;
-// Private ABI profile for Workbench 1.8.0.13 + Qt 6.8.3. See docs/workbench-native-reload.md.
+// Private, exact-build ABI profiles + Qt 6.8.3. See docs/workbench-native-reload.md.
 internal static partial class NativeWorkbench
 {
     internal sealed record UiCommand(string Action, uint AccessibleId = 0, long WindowHandle = 0, string? Text = null);
@@ -49,23 +49,27 @@ internal static partial class NativeWorkbench
     // or delete sharing, so each exact binary needs hashing only once in that scope.
     internal sealed class VerificationScope : IDisposable
     {
-        private readonly Dictionary<string, FileStream> files = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, (FileStream Stream, string Hash)> files = new(StringComparer.OrdinalIgnoreCase);
         internal void Verify(string path, string hash)
         {
-            var key = path + "|" + hash;
-            if (files.ContainsKey(key)) return;
+            if (!Identify(path).Equals(hash, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Unsupported native Workbench binary; reanalyze the isolated profile: " + path);
+        }
+        internal string Identify(string path)
+        {
+            if (files.TryGetValue(path, out var existing)) return existing.Hash;
             var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             try
             {
-                if (!Convert.ToHexString(SHA256.HashData(file)).Equals(hash, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Unsupported native Workbench binary; reanalyze the isolated profile: " + path);
-                files.Add(key, file);
+                var hash = Convert.ToHexString(SHA256.HashData(file));
+                files.Add(path, (file, hash));
+                return hash;
             }
             catch { file.Dispose(); throw; }
         }
-        public void Dispose() { foreach (var file in files.Values) file.Dispose(); files.Clear(); }
+        public void Dispose() { foreach (var file in files.Values) file.Stream.Dispose(); files.Clear(); }
     }
-    public static object Execute(Process process, CancellationToken ct, string? world = null, UiCommand? ui = null, string? play = null, PluginCommand? plugin = null, VerificationScope? verification = null, EntityCommand? entity = null, ChildPrefabCommand? childPrefab = null, bool projectContext = false, bool? runtimeSetup = null, bool? resourceLeakAssertion = null, ChoicesCommand? choices = null, int? runtimePort = null)
+    public static object Execute(Process process, CancellationToken ct, string? world = null, UiCommand? ui = null, string? play = null, PluginCommand? plugin = null, VerificationScope? verification = null, EntityCommand? entity = null, ChildPrefabCommand? childPrefab = null, bool projectContext = false, bool? runtimeSetup = null, bool? resourceLeakAssertion = null, ChoicesCommand? choices = null, int? runtimePort = null, bool probe = false)
     {
         ct.ThrowIfCancellationRequested();
         using var dispatchLease = ui is null ? new DispatchLease(process) : null;
@@ -82,12 +86,12 @@ internal static partial class NativeWorkbench
             if (field.Kind == "bool" && plugin.Value is not ("true" or "false")) throw new ArgumentException("Setting requires true or false.");
             if (field.Kind is "array" or "process") throw new ArgumentException("Peer count and process observations are read-only.");
         }
-        var runReload = world is null && ui is null && play is null && plugin is null && entity is null && childPrefab is null && !projectContext && runtimeSetup is null && resourceLeakAssertion is null && choices is null;
+        var runReload = !probe && world is null && ui is null && play is null && plugin is null && entity is null && childPrefab is null && !projectContext && runtimeSetup is null && resourceLeakAssertion is null && choices is null;
         var suppressResourceLeakAssertion = resourceLeakAssertion == true || runReload || world is not null || ui is not null || play is "start" or "stop";
         using var ownVerification = verification is null ? new VerificationScope() : null;
         void CheckHash(string path, string hash) => (verification ?? ownVerification!).Verify(path, hash);
         var exe = process.MainModule!;
-        CheckHash(exe.FileName, "7dd36ca1f662b0c13669a4f2f7f10e3c461c2906b021e742272d64b3ab7e9798");
+        var profile = NativeWorkbenchProfile.Select((verification ?? ownVerification!).Identify(exe.FileName));
         var qt = process.Modules.Cast<ProcessModule>().Single(m => m.ModuleName == "Qt6Core.dll");
         CheckHash(qt.FileName, "0cc62e841959fb8f6d366ea116c6f6bbc273e30f0ef90d8aa2e4adeb81fd63f8");
         var hp = N.OpenProcess(0x10047a, false, process.Id);
@@ -103,26 +107,28 @@ internal static partial class NativeWorkbench
                 byte[] Read(nint p, int n) { var b = new byte[n]; Check(N.ReadProcessMemory(hp, p, b, (nuint)n, out var got) && got == (nuint)n); return b; }
                 void Write(nint p, byte[] b) => Check(N.WriteProcessMemory(hp, p, b, (nuint)b.Length, out var got) && got == (nuint)b.Length);
                 nint Ptr(nint p) => (nint)BitConverter.ToInt64(Read(p, 8));
-                var app = Ptr(exe.BaseAddress + 0x3db6598);
-                if (Ptr(app) != exe.BaseAddress + 0x2b922c8) throw new Exception("Application vtable mismatch");
+                var app = Ptr((nint)profile.Address(exe.BaseAddress, 0x3db6598));
+                if (Ptr(app) != profile.Address(exe.BaseAddress, 0x2b922c8)) throw new Exception("Application vtable mismatch");
                 // app+164e can be set during Play: it blocks reload/world opening,
                 // but must not prevent Play observation or its normal stop lifecycle.
-                if (ui is null && (Read(exe.BaseAddress + 0x3db65e5, 1)[0] != 0 || (play is null && plugin is null && resourceLeakAssertion is null && Read(app + 0x164e, 1)[0] != 0))) throw new WorkbenchBusyException("Application busy");
+                if (ui is null && (Read((nint)profile.Address(exe.BaseAddress, 0x3db65e5), 1)[0] != 0 || (play is null && plugin is null && resourceLeakAssertion is null && Read(app + profile.ApplicationBusyOffset, 1)[0] != 0))) throw new WorkbenchBusyException("Application busy");
                 CheckCode(exe, 0x222c70); CheckCode(qt, 0x20980);
+                if (profile.Experimental && (runtimeSetup is not null || projectContext || world is not null || childPrefab is not null))
+                    CheckCode(exe, 0x1e32f10); // 1.9 filesystem SmallString ownership release.
                 if (suppressResourceLeakAssertion || resourceLeakAssertion is not null)
                 {
                     // Validate the complete assertion branch, not just its owning function entry.
                     CheckCode(exe, 0x1a6a881); CheckCode(exe, 0x1a6a8a1); CheckCode(exe, 0x1a6a8bc);
-                    if (Read(exe.BaseAddress + ResourceLeakSuppressionRva, 1)[0] > 1)
+                    if (Read((nint)profile.Address(exe.BaseAddress, ResourceLeakSuppressionRva), 1)[0] > 1)
                         throw new InvalidOperationException("Unsupported resource-leak assertion flag state.");
                 }
                 if (runtimeSetup is not null)
                 {
                     foreach (var rva in new[] { 0x1e90630, 0x57d160, 0x57d1a0, 0x22a320, 0x22c230, 0x22c310, 0x1e32460 }) CheckCode(exe, rva);
-                    var settings = Ptr(app + 0x1600);
-                    if (settings == 0 || Ptr(settings) != exe.BaseAddress + 0x3221a60 ||
-                        BitConverter.ToInt32(Read(exe.BaseAddress + 0x3b0dbb0, 4)) != 8 ||
-                        BitConverter.ToInt32(Read(exe.BaseAddress + 0x3b0dbb4, 4)) != 9)
+                    var settings = Ptr(app + profile.ApplicationSettingsOffset);
+                    if (settings == 0 || Ptr(settings) != profile.Address(exe.BaseAddress, 0x3221a60) ||
+                        BitConverter.ToInt32(Read((nint)profile.Address(exe.BaseAddress, 0x3b0dbb0), 4)) != 8 ||
+                        BitConverter.ToInt32(Read((nint)profile.Address(exe.BaseAddress, 0x3b0dbb4), 4)) != 9)
                         throw new InvalidOperationException("Unsupported Workbench settings layout.");
                 }
                 if (projectContext)
@@ -178,7 +184,7 @@ internal static partial class NativeWorkbench
                 // expected thread; actual thread; reload flag; bool result; completion; queue result.
                 var bytes = new byte[512];
                 void Q(int o, long v) => BitConverter.GetBytes(v).CopyTo(bytes, o);
-                Q(0, 1); Q(8, code + 128); Q(16, app); Q(24, exe.BaseAddress + 0x222c70);
+                Q(0, 1); Q(8, code + 128); Q(16, app); Q(24, profile.Address(exe.BaseAddress, 0x222c70));
                 Q(32, remoteEvent); Q(40, Export("SetEvent")); Q(48, Export("GetCurrentThreadId"));
                 BitConverter.GetBytes(uiThread).CopyTo(bytes, 56); Q(64, runReload ? 1 : 0);
                 Write(data, bytes);
@@ -234,11 +240,13 @@ internal static partial class NativeWorkbench
                 var helper = new E(); helper.B(0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x89, 0xcb); // rbx=rcx
                 helper.B(0x48, 0x8b, 0x4b, 8, 0x48, 0x8b, 0x53, 16, 0x4c, 0x8b, 0x43, 24, 0xff, 0x13, 0x48, 0x89, 0x43, 32);
                 helper.B(0x48, 0x83, 0xc4, 0x20, 0x5b, 0xc3);
-                var cb = new E(); cb.B(0x53, 0x48, 0x83, 0xec, 0x40, 0x48, 0x89, 0xd3); // rbx=self; 64-byte aligned call frame
+                var cb = new E(profile); cb.B(0x53, 0x48, 0x83, 0xec, 0x40, 0x48, 0x89, 0xd3); // rbx=self; 64-byte aligned call frame
                 cb.B(0x83, 0xf9, 0); cb.J(0x84, "destroy"); cb.B(0x83, 0xf9, 1); cb.J(0x85, "return");
                 cb.B(0xff, 0x53, 48, 0x89, 0x43, 60, 0x3b, 0x43, 56); cb.J(0x85, "wrong");
                 if (suppressResourceLeakAssertion) EmitSuppressResourceLeakAssertion(cb, exe.BaseAddress);
-                if (runReload)
+                if (probe)
+                    cb.B(0xc7, 0x43, 68, 1, 0, 0, 0); // Harmless owning-thread/lifetime verification, no editor action.
+                else if (runReload)
                     cb.B(0x48, 0x8b, 0x4b, 16, 0x31, 0xd2, 0xff, 0x53, 24, 0x0f, 0xb6, 0xc0, 0x89, 0x43, 68);
                 else if (ui is not null)
                 {
@@ -403,6 +411,8 @@ internal static partial class NativeWorkbench
                     entityFound = BitConverter.ToInt64(result, 104) != 0, layerId = BitConverter.ToInt32(result, 112),
                     expectedThread = uiThread, actualThread = BitConverter.ToUInt32(result, 60), completed,
                     allocationsReleased = true };
+                if (probe) return new { state = completed == 2 && succeeded ? "probed" : "probe_failed", processId = process.Id,
+                    profile = profile.Id, expectedThread = uiThread, actualThread = BitConverter.ToUInt32(result, 60), allocationsReleased = true };
                 if (field is not null) return new { state = completed == 2 && succeeded ? plugin!.Action == "get" ? "observed" : "updated" : "setting_unavailable", processId = process.Id, tool = plugin!.Tool, field = plugin.Field, value = succeeded ? fieldValue : null, nativeType = BitConverter.ToUInt32(result, 104), expectedThread = uiThread, actualThread = BitConverter.ToUInt32(result, 60), allocationsReleased = true };
                 if (play is not null)
                 {
@@ -446,6 +456,7 @@ internal static partial class NativeWorkbench
                 }
                 void CheckCode(ProcessModule module, int rva)
                 {
+                    if (module.BaseAddress == exe.BaseAddress) rva = profile.Rva(rva);
                     using var stream = File.OpenRead(module.FileName); using var pe = new PEReader(stream);
                     var section = pe.PEHeaders.SectionHeaders.Single(s => rva >= s.VirtualAddress && rva < s.VirtualAddress + s.VirtualSize);
                     stream.Position = section.PointerToRawData + rva - section.VirtualAddress; var expected = new byte[32]; stream.ReadExactly(expected);
@@ -560,18 +571,18 @@ internal static partial class NativeWorkbench
     }
     private static void EmitPlugin(E e, nint image, PluginCommand command)
     {
-        void Call(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0xd0); }
+        void Call(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0xd0); }
         // Resolve the existing World Editor and its own loaded plugin instances.
         // No creation, menu traversal, registry substitution, or cached object pointer.
-        e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0xba); e.Q(image + 0x2ba4318); Call(0x20ea70);
+        e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0xba); e.Image(image, 0x2ba4318); Call(0x20ea70);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "pluginDone");
         e.B(0x83, 0x78, 0x24, 1); e.J(0x85, "pluginDone");
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x31, 0xd2, 0xff, 0x90, 0xd8, 0, 0, 0);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "pluginDone");
-        e.B(0x48, 0xba); e.Q(image + 0x2ba8d78);
+        e.B(0x48, 0xba); e.Image(image, 0x2ba8d78);
         e.B(0x48, 0x39, 0x10); e.J(0x85, "pluginIncompatible");
         e.B(0x48, 0x8b, 0x40, 0x78, 0x48, 0x85, 0xc0); e.J(0x84, "pluginDone");
-        e.B(0x48, 0xba); e.Q(image + 0x2bab900);
+        e.B(0x48, 0xba); e.Image(image, 0x2bab900);
         e.B(0x48, 0x39, 0x10); e.J(0x85, "pluginIncompatible");
         e.B(0x44, 0x8b, 0x58, 0x6c, 0x41, 0x81, 0xfb, 0, 2, 0, 0); e.J(0x87, "pluginIncompatible");
         e.B(0x4c, 0x8b, 0x50, 0x60, 0x45, 0x31, 0xc9);
@@ -633,7 +644,7 @@ internal static partial class NativeWorkbench
             {
                 if (field.Kind == "process")
                 {
-                    e.B(0x3d, 0xad, 1, 0, 0x20); e.J(0x85, "pluginDone");
+                    EmitProcessHandleGuard(e, "pluginDone");
                     e.B(0x48, 0x8b, 0x01, 0x48, 0x89, 0x43, 112);
                     if (command.Action == "clear_closed_server")
                     {
@@ -680,15 +691,15 @@ internal static partial class NativeWorkbench
     }
     private static void EmitPlay(E e, nint image, string action)
     {
-        void Call(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0xd0); }
+        void Call(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0xd0); }
         void Playing() { e.B(0x48, 0x8b, 0x4b, 88, 0x48, 0x81, 0xc1, 0xa0, 0, 0, 0, 0x48, 0x8b, 0x01, 0xff, 0x90, 0x98, 0, 0, 0, 0x0f, 0xb6, 0xc0); }
         // Only obtain an existing World Editor; status/start never open a world.
-        e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0xba); e.Q(image + 0x2ba4318); Call(0x20ea70);
+        e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0xba); e.Image(image, 0x2ba4318); Call(0x20ea70);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "playMissing");
         e.B(0x83, 0x78, 0x24, 1); e.J(0x85, "playMissing");
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x31, 0xd2, 0xff, 0x90, 0xd8, 0, 0, 0);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "playMissing");
-        e.B(0x48, 0x89, 0x43, 88, 0x48, 0xba); e.Q(image + 0x2ba8d78);
+        e.B(0x48, 0x89, 0x43, 88, 0x48, 0xba); e.Image(image, 0x2ba8d78);
         e.B(0x48, 0x39, 0x10); e.J(0x85, "playIncompatible");
         Playing(); e.B(0x89, 0x43, 104, 0x89, 0x43, 108, 0xc7, 0x43, 112, 1, 0, 0, 0);
         if (action != "status")
@@ -719,9 +730,9 @@ internal static partial class NativeWorkbench
     // slot data pointer; every call shares the callback's aligned shadow space/unwind.
     private static void EmitOpenWorld(E e, nint image, bool prefab)
     {
-        void Call(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0xd0); }
+        void Call(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0xd0); }
         // Find WorldEditor descriptor, then create or obtain its sole existing instance.
-        e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0xba); e.Q(image + 0x2ba4318);
+        e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0xba); e.Image(image, 0x2ba4318);
         Call(0x20ea70);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "worldDone");
         e.B(0x48, 0x89, 0x43, 80, 0x83, 0x78, 0x24, 1); e.J(0x87, "worldIncompatible");
@@ -732,7 +743,7 @@ internal static partial class NativeWorkbench
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x31, 0xd2, 0xff, 0x90, 0xd8, 0, 0, 0);
         e.Label("worldReady");
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "worldDone");
-        e.B(0x48, 0x89, 0x43, 88, 0x48, 0xba); e.Q(image + 0x2ba8d78);
+        e.B(0x48, 0x89, 0x43, 88, 0x48, 0xba); e.Image(image, 0x2ba8d78);
         e.B(0x48, 0x39, 0x10); e.J(0x85, "worldIncompatible");
         // Refuse play and modified state inside the GUI callback, before loading.
         e.B(0x48, 0x8d, 0x88, 0xa0, 0, 0, 0, 0x48, 0x8b, 0x01, 0xff, 0x90, 0x98, 0, 0, 0, 0x84, 0xc0);
@@ -765,7 +776,9 @@ internal static partial class NativeWorkbench
 
         Call(0x1e90630);
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x48, 0x8b, 0x53, 96, 0x48, 0x8b, 0x52, 8,
-            0x4c, 0x8d, 0x83, 0, 4, 0, 0, 0x41, 0xb9, 0xff, 0xff, 0xff, 0xff, 0xff, 0x90, 0x48, 1, 0, 0, 0x84, 0xc0);
+            0x4c, 0x8d, 0x83, 0, 4, 0, 0, 0x41, 0xb9, 0xff, 0xff, 0xff, 0xff);
+        EmitFileSystemBuffer(e, image, 0x148, 560, "worldResolvedPath");
+        e.B(0x84, 0xc0);
         e.J(0x84, "worldRelease");
         e.B(0x48, 0x8d, 0x93, 0, 4, 0, 0, 0xb9, 0xf1, 0, 0, 0);
         e.Label("worldPathBound");
@@ -788,7 +801,7 @@ internal static partial class NativeWorkbench
             // Verify the owning mode and locate the display root whose prefab
             // ancestor has exactly the requested ResourceName (including GUID).
             e.B(0x48, 0x8b, 0x43, 88, 0x48, 0x8b, 0x80, 0x28, 1, 0, 0, 0x48, 0x89, 0x83, 0x80, 0, 0, 0);
-            void Api(int slot) { e.B(0x48, 0x8b, 0x8b, 0x80, 0, 0, 0, 0x48, 0x8b, 0x01, 0xff, 0x90); e.B(BitConverter.GetBytes(slot)); }
+            void Api(int slot) { e.B(0x48, 0x8b, 0x8b, 0x80, 0, 0, 0, 0x48, 0x8b, 0x01, 0xff, 0x90); e.B(BitConverter.GetBytes(e.Profile.WorldApiSlot(slot))); }
             Api(0x80); e.B(0x0f, 0xb6, 0xc0, 0x89, 0x43, 104, 0x84, 0xc0); e.J(0x84, "worldRelease");
             Api(0xa8); e.B(0x89, 0x83, 0x88, 0, 0, 0, 0xc7, 0x83, 0x8c, 0, 0, 0, 0, 0, 0, 0);
             e.Label("prefabRootLoop");
@@ -805,7 +818,7 @@ internal static partial class NativeWorkbench
         e.B(0x48, 0x8b, 0x4b, 96, 0x48, 0x85, 0xc9); e.J(0x84, "worldPath");
         e.B(0xf0, 0xff, 0x09); e.J(0x85, "worldPath");
         Call(0x269dc0);
-        e.B(0x48, 0xb8); e.Q(image + 0x3c7c260);
+        e.B(0x48, 0xb8); e.Image(image, 0x3c7c260);
         e.B(0x48, 0x8b, 0x08, 0x48, 0x8b, 0x01, 0x48, 0x8b, 0x53, 96, 0x45, 0x31, 0xc0, 0xff, 0x50, 0x10);
         e.Label("worldPath");
         // Copy current world path while still on the GUI thread. No borrowed
@@ -852,8 +865,10 @@ internal static partial class NativeWorkbench
     }
     static void CheckHash(string path, string hash) { using var file = File.OpenRead(path); if (!Convert.ToHexString(SHA256.HashData(file)).Equals(hash, StringComparison.OrdinalIgnoreCase)) throw new Exception("Unsupported native Workbench binary; reanalyze and update the isolated profile. No fallback: " + path); }
     static void Check(bool ok) { if (!ok) throw new Win32Exception(Marshal.GetLastWin32Error()); }
-    sealed class E
+    sealed class E(NativeWorkbenchProfile? profile = null)
     {
+        public NativeWorkbenchProfile Profile { get; } = profile ?? NativeWorkbenchProfile.Stable;
+        public void Image(nint image, int rva) => Q(Profile.Address(image, rva));
         readonly List<byte> bytes = []; readonly Dictionary<string, int> labels = []; readonly List<(int, string)> jumps = [];
         public void B(params byte[] b) => bytes.AddRange(b); public void Q(long n) => bytes.AddRange(BitConverter.GetBytes(n));
         public void Label(string name) => labels.Add(name, bytes.Count);

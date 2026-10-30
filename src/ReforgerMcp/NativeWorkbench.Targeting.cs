@@ -45,8 +45,8 @@ internal static partial class NativeWorkbench
     private static void EmitTarget(E e, nint image, TargetCommand command)
     {
         void I(int value) => e.B(BitConverter.GetBytes(value));
-        void Call(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0xd0); }
-        void Api(int slot) { e.B(0x48, 0x8b, 0x4b, 96, 0x48, 0x8b, 0x01, 0xff, 0x90); I(slot); }
+        void Call(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0xd0); }
+        void Api(int slot) { e.B(0x48, 0x8b, 0x4b, 96, 0x48, 0x8b, 0x01, 0xff, 0x90); I(e.Profile.WorldApiSlot(slot)); }
         var mutation = command.Action is "set" or "clear" or "add_component" or "remove_component" or "insert_object" or "remove_object";
         // All source reads and calls occur on the editor thread. No source pointer is
         // dereferenced by the controlling process after this callback returns.
@@ -106,12 +106,12 @@ internal static partial class NativeWorkbench
                 // Compare the component with the ancestor array by its engine name,
                 // as the editor's localization operation does (not GetParent).
                 e.B(0x48, 0x8b, 0x8b); I(304);
-                e.B(0x48, 0xba); e.Q(image + 0x3ca125c); e.B(0x8b, 0x12);
+                e.B(0x48, 0xba); e.Image(image, 0x3ca125c); e.B(0x8b, 0x12);
                 e.B(0x48, 0x8b, 0x01, 0xff, 0x90); I(0x130);
                 e.B(0x48, 0x85, 0xc0); e.J(0x84, "componentInherited");
                 e.B(0x48, 0x8b, 0x8b); I(304); e.B(0x48, 0x8b, 0x49, 32);
                 e.B(0x48, 0x85, 0xc9); e.J(0x84, "componentOwnershipDone");
-                e.B(0x48, 0xba); e.Q(image + 0x3ca125c); e.B(0x8b, 0x12);
+                e.B(0x48, 0xba); e.Image(image, 0x3ca125c); e.B(0x8b, 0x12);
                 e.B(0x48, 0x8b, 0x01, 0xff, 0x90); I(0x128);
                 e.B(0x48, 0x85, 0xc0); e.J(0x84, "componentOwnershipDone");
                 e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x93); I(408);
@@ -330,7 +330,7 @@ internal static partial class NativeWorkbench
                 if (command.Component >= 0)
                 {
                     e.B(0x48, 0x8d, 0x8b); I(320); Call(0x1ad60d0);
-                    e.B(0x48, 0x89, 0xc1, 0x48, 0xba); e.Q(image + 0x3ca125c); e.B(0x8b, 0x12);
+                    e.B(0x48, 0x89, 0xc1, 0x48, 0xba); e.Image(image, 0x3ca125c); e.B(0x8b, 0x12);
                     e.B(0x4c, 0x8b, 0x83); I(408);
                     e.B(0x4d, 0x8b, 0x48, 24, 0x4d, 0x8b, 0x49, 32, 0x49, 0x83, 0xc0, 8);
                     Call(0x1ad7760);

@@ -22,13 +22,14 @@ internal static partial class NativeWorkbench
     private static void EmitRuntimeSetup(E e, nint image, bool enable, int? port)
     {
         void I(int n) => e.B(BitConverter.GetBytes(n));
-        void Call(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0xd0); }
-        void Settings() { e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0x8b, 0x89); I(0x1600); }
+        void Call(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0xd0); }
+        void Settings() { e.B(0x48, 0x8b, 0x4b, 16, 0x48, 0x8b, 0x89); I(e.Profile.ApplicationSettingsOffset); }
         // Resolve the actual running profile, including custom -profile launches.
         Call(0x1e90630);
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x48, 0x8d, 0x93); I(512);
         e.B(0x4c, 0x8d, 0x83); I(1024);
-        e.B(0x45, 0x31, 0xc9, 0xff, 0x90); I(0x140);
+        e.B(0x45, 0x31, 0xc9);
+        EmitFileSystemBuffer(e, image, 0x140, 1024, "setupProfile");
         e.B(0x84, 0xc0); e.J(0x84, "setupInvalid");
         if (enable)
         {

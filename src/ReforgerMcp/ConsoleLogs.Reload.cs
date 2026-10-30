@@ -10,7 +10,7 @@ public sealed partial class ConsoleLogs
     internal sealed record ReloadCheckpoint(LogResult? Before, string? Reason);
 
     // Associate an existing configured console with its OS owner, never its label or age.
-    // Only the newest session of each configured source is considered; no guessed directories.
+    // The newest two configured candidates cover direct -logsDir and default session folders.
     internal ReloadCheckpoint BeginReload(Process process, CancellationToken ct)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -21,10 +21,9 @@ public sealed partial class ConsoleLogs
             foreach (var source in config.LogDirectories.Keys)
             {
                 budget.Token.ThrowIfCancellationRequested();
-                var session = Directory.GetDirectories(Root(source)).Select(Path.GetFileName)
-                    .Where(s => s is not null && SessionName.IsMatch(s)).OrderDescending(StringComparer.Ordinal).FirstOrDefault();
-                if (session is not null && File.Exists(Path.Combine(Root(source), session, "console.log")) &&
-                    OwnedBy(Path.Combine(Root(source), session, "console.log"), process)) candidates.Add((source, session));
+                foreach (var session in SessionIds(source).Take(2))
+                    if (File.Exists(LogPath(source, session)) && OwnedBy(LogPath(source, session), process))
+                        candidates.Add((source, session));
             }
             if (candidates.Count != 1) return new(null, "Exactly one configured console.log owned by this Workbench process was not found.");
             var selected = candidates[0];

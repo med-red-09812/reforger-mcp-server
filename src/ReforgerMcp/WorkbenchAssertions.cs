@@ -8,9 +8,9 @@ public sealed partial class WorkbenchSession
     {
         if (action is not ("status" or "suppress")) throw new ArgumentException("action must be status or suppress.");
         if (processId <= 0) throw new ArgumentException("processId must come from workbench_script_status.");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_script_status.");
             var editorWindows = Windows(process.Id);
             if (!editorWindows.Any(w => w.Current.AutomationId == ResourceManager))

@@ -34,9 +34,9 @@ public sealed partial class WorkbenchSession
                 throw new ArgumentException("Prefab or metadata already exists; export requires a new path and never intentionally overwrites an asset.");
             asset = asset.Replace('\\', '/');
         }
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_script_status.");
             var windows = Windows(process.Id);
             RequiredWindow(windows, ResourceManager);

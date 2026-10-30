@@ -30,7 +30,7 @@ This build targets **Windows 10 version 2004/build 19041 or later, x64**. Captur
 
 - Minimized and cloaked windows are rejected. Restore the window explicitly; capture does not restore it.
 - Closed, expired or unknown selections fail. No other window is substituted.
-- Resizing during capture fails explicitly. List again before another request.
+- Before retaining the first frame, the pool can reconcile one difference between the selected item's size and the frame's content size (for example, maximized-window borders). It discards that frame and recreates the pool at the observed content size. Metadata reports `selectionWidth`, `selectionHeight` and `initialGeometryAdjusted`. Any further size change, or resizing after a frame is retained, fails explicitly; no sequence mixes dimensions.
 - One capture runs at a time; a concurrent request returns busy.
 - Frame wait and asynchronous conversion/encoding share a ten-second cancellation deadline. Synchronous Windows/driver calls are outside that asynchronous deadline.
 - Source frames are bounded at 33,177,600 pixels; encoded PNGs at 16 MiB.
@@ -39,6 +39,8 @@ This build targets **Windows 10 version 2004/build 19041 or later, x64**. Captur
 ## Implementation references
 
 Microsoft documents [CreateForWindow](https://learn.microsoft.com/en-us/windows/win32/api/windows.graphics.capture.interop/nf-windows-graphics-capture-interop-igraphicscaptureiteminterop-createforwindow), [free-threaded frame pools](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframepool.createfreethreaded), [surface copying](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.imaging.softwarebitmap.createcopyfromsurfaceasync) and [bitmap encoding](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.imaging.bitmapencoder). The C# implementation uses the Windows SDK projection and small C# ABI declarations, not a second capture service.
+
+The initial geometry reconciliation follows Microsoft's [ContentSize](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframe.contentsize) and [frame-pool Recreate](https://learn.microsoft.com/en-us/uwp/api/windows.graphics.capture.direct3d11captureframepool.recreate) contracts. Undefined surface padding is never returned as image content.
 
 ## Reproducing validation
 

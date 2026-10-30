@@ -4,8 +4,10 @@ Maintainer note: `.temp/tests/` contains optional, disposable local harnesses, e
 
 Configure `logDirectories` with a label and logs directory for each Workbench or independent client profile. See [example configuration](../configuration.example.json). Paths resolve relative to the configuration file and support `${Documents}`. No editor connection or Ghidra is needed. Only `console.log` is read; no merged streams or alternate files.
 
+A source may contain dated `logs_.../console.log` sessions, a direct `console.log` written by Workbench's `-logsDir`, or both. The direct file is listed as session `configured`; candidates are ordered by console modification time. Reload diagnostics still require a file owned by the selected process, and session IDs cannot traverse outside the configured root.
+
 - `log_sessions()` lists configured sources; `log_sessions(source: "peer1")` lists up to 10 newest session folders (limit 1–20).
-- `log_read(source: "workbench")` selects the newest dated session folder and the latest reload/initial compilation through the observed file end. A missing console or unrecognized boundary returns an error; it never silently switches sessions or returns a tail.
+- `log_read(source: "workbench")` selects the newest listed console and the latest reload/initial compilation through the observed file end. A missing console or unrecognized boundary returns an error; it never silently switches sessions or returns a tail.
 - `severity: "error"`, `"warning"`, or `"info"` and `category: "SCRIPT"`/`"RESOURCES"`/`"NETWORK"` narrow results. Filters combine. Category and search are case-insensitive.
 - `workbench_reload_scripts` includes fresh process-owned errors in `reload_failed` results when correlation is verified; see [inline reload diagnostics](workbench-scripts.md#inline-failure-details-and-retained-results). If those diagnostics are unavailable or insufficient, start with `log_read(source: "workbench", severity: "error")`. Broaden to context or the full cycle if that does not explain the failure. The general default still includes ordinary runtime messages.
 - `query: "allowed=0"` searches literal text, including ordinary runtime messages. Set `regex: true` for a regular expression (512-character pattern limit, 100ms match timeout, 10s overall scan limit). Regex errors/timeouts return errors, not partial matches.

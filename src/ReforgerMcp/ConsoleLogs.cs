@@ -17,19 +17,34 @@ public sealed partial class ConsoleLogs(Configuration config)
     string Root(string source) => config.LogDirectories.TryGetValue(source, out var root)
         ? root : throw new ArgumentException("Unknown log source. Configured sources: " + string.Join(", ", config.LogDirectories.Keys));
 
+    // -logsDir writes console.log directly; the default profile creates logs_* children.
+    private string LogPath(string source, string session)
+    {
+        if (session != "configured" && !SessionName.IsMatch(session))
+            throw new ArgumentException("session must be configured or a logs_YYYY-MM-DD_HH-MM-SS folder name.");
+        return Path.Combine(session == "configured" ? Root(source) : Path.Combine(Root(source), session), "console.log");
+    }
+    private string[] SessionIds(string source)
+    {
+        var sessions = Directory.GetDirectories(Root(source)).Select(Path.GetFileName)
+            .Where(p => p is not null && SessionName.IsMatch(p)).Select(p => p!);
+        if (File.Exists(Path.Combine(Root(source), "console.log"))) sessions = sessions.Prepend("configured");
+        return sessions.OrderByDescending(s => File.GetLastWriteTimeUtc(LogPath(source, s)))
+            .ThenByDescending(s => s, StringComparer.Ordinal).ToArray();
+    }
+
     public object Sessions(string? source, int limit)
     {
         if (limit is < 1 or > 20) throw new ArgumentException("limit must be 1-20.");
         if (source is null) return new { sources = config.LogDirectories.Select(p => new { source = p.Key, directory = p.Value, available = Directory.Exists(p.Value) }).ToArray() };
-        var directories = Directory.GetDirectories(Root(source)).Where(p => SessionName.IsMatch(Path.GetFileName(p)))
-            .OrderByDescending(Path.GetFileName, StringComparer.Ordinal).ToArray();
-        return new { source, sessions = directories.Take(limit).Select(p =>
+        var sessions = SessionIds(source);
+        return new { source, sessions = sessions.Take(limit).Select(p =>
         {
-            var file = new FileInfo(Path.Combine(p, "console.log"));
-            return new { session = Path.GetFileName(p), available = file.Exists, bytes = file.Exists ? (long?)file.Length : null,
+            var file = new FileInfo(LogPath(source, p));
+            return new { session = p, available = file.Exists, bytes = file.Exists ? (long?)file.Length : null,
                 lastWriteUtc = file.Exists ? (DateTime?)file.LastWriteTimeUtc : null };
-        }).ToArray(), total = directories.Length, truncated = directories.Length > limit,
-            scope = "Folder dates order sessions. Newest does not mean running. Only console.log is read." };
+        }).ToArray(), total = sessions.Length, truncated = sessions.Length > limit,
+            scope = "Console last-write times order sessions. 'configured' is console.log directly in the configured root. Newest does not mean running. Only console.log is read." };
     }
 
     public LogResult Read(string source, string? session, string scope, int cycleOffset, string? severity,
@@ -43,11 +58,8 @@ public sealed partial class ConsoleLogs(Configuration config)
         if (category?.Length > 32 || query?.Length > 512) throw new ArgumentException("category/query too long (32/512 characters).");
         if (regex && string.IsNullOrEmpty(query)) throw new ArgumentException("regex requires query.");
         if (revision is not null && session is null) throw new ArgumentException("Pass the returned session with revision.");
-        var root = Root(source);
-        session ??= Directory.GetDirectories(root).Select(Path.GetFileName).Where(p => p is not null && SessionName.IsMatch(p))
-            .OrderDescending(StringComparer.Ordinal).FirstOrDefault() ?? throw new InvalidOperationException("No log sessions available.");
-        if (!SessionName.IsMatch(session)) throw new ArgumentException("session must be a logs_YYYY-MM-DD_HH-MM-SS folder name.");
-        var path = Path.Combine(root, session, "console.log");
+        session ??= SessionIds(source).FirstOrDefault() ?? throw new InvalidOperationException("No log sessions available.");
+        var path = LogPath(source, session);
         var info = new FileInfo(path);
         if (!info.Exists) throw new FileNotFoundException("console.log unavailable in selected session.", path);
         var length = info.Length;

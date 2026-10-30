@@ -10,10 +10,10 @@ internal static partial class NativeWorkbench
         void Call(nint address) { e.B(0x48, 0xb8); e.Q(address); e.B(0xff, 0xd0); }
         void Cast(int source, int target)
         {
-            e.B(0x31, 0xd2, 0x49, 0xb8); e.Q(image + source);
-            e.B(0x49, 0xb9); e.Q(image + target);
+            e.B(0x31, 0xd2, 0x49, 0xb8); e.Image(image, source);
+            e.B(0x49, 0xb9); e.Image(image, target);
             e.B(0xc7, 0x44, 0x24, 0x20, 0, 0, 0, 0); // pointer cast: return null on mismatch
-            Call(image + 0x2a68079); // __RTDynamicCast
+            Call((nint)e.Profile.Address(image, 0x2a68079)); // __RTDynamicCast
             e.B(0x48, 0x85, 0xc0); e.J(0x84, "uiDone");
             e.B(0x48, 0x89, 0xc1);
         }
@@ -29,7 +29,7 @@ internal static partial class NativeWorkbench
 
         // Respect the native '+' enabled state, including parent restrictions.
         e.B(0x48, 0x8b, 0x88, 0xa8, 0, 0, 0, 0x48, 0x85, 0xc9); e.J(0x84, "uiDone");
-        e.B(0x48, 0xba); e.Q(image + 0x2d89d98); // ArrayEditWidget
+        e.B(0x48, 0xba); e.Image(image, 0x2d89d98); // ArrayEditWidget
         e.B(0x48, 0x39, 0x11); e.J(0x85, "uiDone");
         e.B(0x48, 0x8b, 0x49, 0x30, 0x48, 0x85, 0xc9); e.J(0x84, "uiDone");
         e.B(0x31, 0xd2); Call(widgets + 0x5c820); // QWidget::isEnabledTo(nullptr)

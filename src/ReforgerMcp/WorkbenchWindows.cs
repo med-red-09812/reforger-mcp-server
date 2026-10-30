@@ -22,10 +22,10 @@ public sealed class WorkbenchWindows(Configuration configuration)
     private static bool WindowEnabled(AutomationElement w) => w.Current.IsEnabled && IsWindowEnabled(w.Current.NativeWindowHandle);
     private static string Title(nint hwnd) { var b = new StringBuilder(4096); CaptureNative.GetWindowText(hwnd, b, b.Capacity); return b.ToString(); }
     private static string Class(nint hwnd) { var b = new StringBuilder(256); GetClassName(hwnd, b, b.Capacity); return b.ToString(); }
-    public Task<object> Headers(CancellationToken ct) => Run(() =>
+    public Task<object> Headers(CancellationToken ct, int? processId = null) => Run(() =>
     {
         selections.Clear(); controls.Clear(); nativeWindows.Clear();
-        using var process = WorkbenchSession.SelectProcess(configuration);
+        using var process = WorkbenchSession.SelectProcess(configuration, processId);
         var expires = DateTimeOffset.UtcNow.AddMinutes(2);
         var result = new List<object>();
         CaptureNative.EnumWindowsCallback callback = (hwnd, _) =>
@@ -54,7 +54,7 @@ public sealed class WorkbenchWindows(Configuration configuration)
         {
             try
             {
-                using var p = WorkbenchSession.SelectProcess(configuration);
+                using var p = WorkbenchSession.SelectProcess(configuration, pid);
                 if (p.Id != pid || p.StartTime.ToUniversalTime().Ticks != start) throw new InvalidOperationException("Workbench process changed before dispatch.");
                 return NativeWorkbench.Execute(p, CancellationToken.None, ui: command);
             }
@@ -184,7 +184,7 @@ public sealed class WorkbenchWindows(Configuration configuration)
     private void ValidateOwner(Selection selected)
     {
         if (selected.Expires <= DateTimeOffset.UtcNow) throw new ArgumentException("Expired selection; list windows again.");
-        using var process = WorkbenchSession.SelectProcess(configuration);
+        using var process = WorkbenchSession.SelectProcess(configuration, selected.Pid);
         if (process.Id != selected.Pid || process.StartTime.ToUniversalTime().Ticks != selected.Start ||
             !WorkbenchSession.Windows(process.Id).Any(w => RuntimeId(w) == selected.WindowRuntimeId) ||
             Fingerprint(selected.Window, IsEditor(selected.Window) ? [] : Children(selected.Window)) != selected.Fingerprint)
@@ -231,19 +231,19 @@ public sealed class WorkbenchWindows(Configuration configuration)
     private static string Fingerprint(AutomationElement w, AutomationElement[] children) => string.Join('\n',
         new[] { w.Current.Name, w.Current.AutomationId, WindowEnabled(w).ToString(), Modal(w).ToString() }
         .Concat(children.Select(c => $"{RuntimeId(c)}|{c.Current.ControlType.Id}|{c.Current.Name}|{c.Current.IsEnabled}")));
-    public Task<object> List(CancellationToken ct) => Run(() =>
+    public Task<object> List(CancellationToken ct, int? processId = null) => Run(() =>
     {
         selections.Clear();
         controls.Clear();
         nativeWindows.Clear();
-        return Inspect(false);
+        return Inspect(false, processId);
     }, ct);
 
     private object Inspect(bool dialogsOnly, int? expectedPid = null, long? expectedStart = null)
     {
-        using var process = WorkbenchSession.SelectProcess(configuration);
+        using var process = WorkbenchSession.SelectProcess(configuration, expectedPid);
         var started = process.StartTime.ToUniversalTime().Ticks;
-        if (expectedPid is not null && (process.Id != expectedPid || started != expectedStart))
+        if (expectedPid is not null && (process.Id != expectedPid || expectedStart is not null && started != expectedStart))
             throw new InvalidOperationException("Workbench process changed since this operation; its dialogs were not inspected.");
         var observedAt = DateTimeOffset.UtcNow;
         foreach (var key in selections.Where(p => p.Value.Expires <= observedAt).Select(p => p.Key).ToArray()) selections.Remove(key);
@@ -315,7 +315,7 @@ public sealed class WorkbenchWindows(Configuration configuration)
         if (nativeWindows.TryGetValue(selectionId, out var header))
         {
             if (action != "close") throw new ArgumentException("Header selections support close only; request window details for controls.");
-            using var p = WorkbenchSession.SelectProcess(configuration);
+            using var p = WorkbenchSession.SelectProcess(configuration, header.Pid);
             CaptureNative.GetWindowThreadProcessId(header.Handle, out var pid);
             if (header.Expires <= DateTimeOffset.UtcNow || p.Id != header.Pid || pid != p.Id || p.StartTime.ToUniversalTime().Ticks != header.Start ||
                 !CaptureNative.IsWindowVisible(header.Handle) || Title(header.Handle) != header.Title || Class(header.Handle) != header.Class)
@@ -327,7 +327,7 @@ public sealed class WorkbenchWindows(Configuration configuration)
         if (controls.TryGetValue(selectionId, out var selectedControl)) return ActControl(selectedControl, action, ct, value);
         if (!selections.TryGetValue(selectionId, out var selected) || selected.Expires <= DateTimeOffset.UtcNow)
             throw new ArgumentException("Unknown or expired selectionId. Call workbench_windows again; never replay an uncertain action.");
-        using var process = WorkbenchSession.SelectProcess(configuration);
+        using var process = WorkbenchSession.SelectProcess(configuration, selected.Pid);
         if (process.Id != selected.Pid || process.StartTime.ToUniversalTime().Ticks != selected.Start)
             throw new InvalidOperationException("Workbench process changed; list windows again.");
         var window = selected.Window;

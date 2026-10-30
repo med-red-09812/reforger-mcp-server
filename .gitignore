@@ -54,5 +54,6 @@ configuration*.json
 
 # Authored runtime adapter is source
 !adapters/workbench/Scripts/WorkbenchGame/RST_Runtime.c
+!adapters/workbench/Scripts/WorkbenchGame/RST_Multiplayer.c
 
 !adapters/workbench/Scripts/WorkbenchGame/RST_EditorChoices.c

@@ -9,13 +9,13 @@ internal static partial class NativeWorkbench
     private static void EmitSuppressResourceLeakAssertion(E code, nint imageBase)
     {
         // Runs on the owning Qt thread before lifecycle code can enter a modal loop.
-        code.B(0x48, 0xb8); code.Q(imageBase + ResourceLeakSuppressionRva);
+        code.B(0x48, 0xb8); code.Image(imageBase, ResourceLeakSuppressionRva);
         code.B(0xc6, 0x00, 0x01); // mov byte ptr [rax],1
     }
 
     private static void EmitReadResourceLeakAssertion(E code, nint imageBase)
     {
-        code.B(0x48, 0xb8); code.Q(imageBase + ResourceLeakSuppressionRva);
+        code.B(0x48, 0xb8); code.Image(imageBase, ResourceLeakSuppressionRva);
         code.B(0x0f, 0xb6, 0x00, 0x89, 0x43, 68); // result = byte ptr [rax]
     }
 }

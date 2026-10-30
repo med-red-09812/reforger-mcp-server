@@ -14,9 +14,9 @@ public sealed partial class WorkbenchSession
             !expectedWorld.Contains(':') || !expectedWorld.EndsWith(".ent", StringComparison.Ordinal) ||
             expectedWorld.Any(char.IsControl) || Encoding.UTF8.GetByteCount(expectedWorld) > 240)
             throw new ArgumentException("Supply the observed processId and exact loadedWorld (at most 240 UTF-8 bytes).");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed.");
             var windows = Windows(process.Id);
             RequiredWindow(windows, ResourceManager); RequiredWindow(windows, "Arma4WorkbenchApp.worldEditorMain");
