@@ -2,8 +2,9 @@
 
 Fork preparation: see [Stable/Experimental profiles and validation state](docs/workbench-native-reload.md#fork-stable-and-experimental-profiles)
 and the [enfusion-mcp migration comparison](docs/enfusion-migration.md). The
-1.9 profile is a validation candidate; live acceptance and any client cutover
-are separate steps.
+installed Stable 1.8.0.13 and Experimental 1.9.0.10 profiles have passed core
+live checks in isolated projects. Project-specific multiplayer acceptance and
+any client cutover are separate steps.
 
 Tool calls are logged automatically with bounded storage and session summaries;
 see [tool activity logging](docs/tool-activity.md).

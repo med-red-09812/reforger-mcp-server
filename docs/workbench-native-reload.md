@@ -90,6 +90,20 @@ Important verified static changes in the 1.9 candidate:
 - NET API owner `0x234450`, enabled/port field globals `0x3be65c0` / `0x3be65c4`,
   settings persistence `0x2364b0`. Live field-ID checks still require 8 and 9.
 - Resource-leak latch `0x3fc2bf0`, checked against the relocated teardown branch.
+- Filesystem slots `0x140` and `0x148` retain their interface positions but now
+  write a SmallString object: pointer `+0`, inline text `+0x14`, marker `+0x12d`.
+  The shared 1.9 adapter bounds its copy into the existing result buffers and
+  releases the engine reference, distinguishing inline and heap allocations.
+  Slot `0x148` still receives integer mount selector `-1`; `0x150` remains the
+  separate no-output existence query. Resource acknowledgement normalization
+  (`0x201d30`) retains a different legacy inline layout (text `+0x0c`, reference
+  count `+8`, marker `+0x125`); it must not receive the filesystem conversion.
+- `ProcessHandle` is registered by Core scripts as a `handle64` subclass. Its
+  numeric index changed from the earlier build and is not a PE constant. In 1.9
+  the member descriptor's owner `+0x18` supplies the type array `+0x50` and count
+  `+0x5c`; the adapter bounds the index, matches canonical type `+8` and exact
+  name `+0x10` before reading 64-bit storage. It accepts a reordered registration
+  and rejects another type, mismatched canonical ID or invalid module bounds.
 
 Evidence includes exact PE hashes, instruction/caller correspondence, named
 import entries, MSVC RTTI, method registration names, focused Ghidra
@@ -107,12 +121,16 @@ preparing an `engine_*` database when that capability is needed.
 
 ### Validation state
 
-The server builds, and offline checks cover both profiles' emitted callbacks,
+The server builds without warnings, and 159 offline checks cover both profiles' emitted callbacks,
 address/slot coverage, callback-size bounds, exact-hash refusal, installation
 ambiguity, runtime-port separation, foreign same-named processes and stale
 process identities. Existing PAK-search and tool-activity suites also pass.
+The profile suite also executes the production filesystem conversion thunk in
+its own test process against controlled native callbacks. Inline, heap, empty,
+oversized and native-failure results verify actual copy bounds, mount arguments
+and ownership release for both changed filesystem slots.
 
-**Experimental live acceptance is pending.** Stable 1.8.0.13 has passed the
+**Both installed profiles have passed core live validation.** Stable 1.8.0.13 passed the
 harmless owning-thread probe, valid/invalid/recovered reloads (including stopping
 Play), world opening and missing/dirty/wrong-world refusals, entity/component
 creation, typed property editing, Undo/Redo, prefab export/placement and
@@ -128,11 +146,31 @@ unavailable; native failure and the fixture's syntax error were independently
 observed. Recovery compiled successfully; its resource errors include stale
 Workbench plugin references to addons absent from the isolated project.
 
-Before calling 1.9 ready, repeat the applicable checks with its owning profile,
-including prefab definition/child creation, array editing and Play/runtime
-transitions. Multiplayer settings/launch lifecycle remains a separate live
-check; compilation alone does not establish dedicated-server or peer readiness.
-Preserve uncertain operations and failed evidence.
+Experimental 1.9.0.10 repeated the core workflow in its own project/profile and
+additionally passed integer-array set/insert/remove with Undo/Redo and persisted
+readback; consumed-token refusal; child-prefab creation, definition editing,
+save/reopen and base/world isolation; stopped/playing transitions; typed runtime
+Add/Set/Get; process-owned fresh compile-failure diagnostics and recovery;
+profile/port/adapter handshake at 5776; leak-latch readback; three-frame capture
+with consistent geometry; and dedicated/peer settings and stopped-handle reads.
+The final ProcessHandle guard resolves the live canonical type by name, rather
+than assuming the observed 1.9 numeric index. Its emitted-code tests include a
+deliberately reordered index and negative name/kind/index/module cases.
+
+The initial 1.9 raw-buffer reads failed strict UTF-8 decoding. Their evidence
+was retained, the filesystem ABI was independently retraced, and the disposable
+editor was restarted before acceptance of the corrected conversion. Compiler
+recovery still logs engine/plugin teardown diagnostics, including a Pacejka tool
+leak and an unknown saved plugin class; a successful reload does not mean those
+diagnostics were absent. No production addon was loaded or changed. The original
+NET API port was restored through its owner, then both test editors closed
+normally through MCP. No real keyboard or mouse input was used.
+
+Dedicated-server/peer launching, connections, multiplayer scenarios, player
+input and production-project acceptance remain separate checks. Full Ghidra
+index preparation remains optional setup for native investigation. Preserve
+uncertain operations and failed evidence; do not treat core validation as
+whole-project or multiplayer acceptance.
 
 No active MCP registration has been replaced by this work.
 

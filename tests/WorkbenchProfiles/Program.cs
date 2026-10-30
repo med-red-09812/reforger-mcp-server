@@ -77,6 +77,8 @@ Configuration Reload(Configuration config)
 }
 try
 {
+    checks += FileSystemBufferTests.Run();
+    checks += FileSystemBufferTests.ProcessHandles();
     foreach (var profile in new[] { NativeWorkbenchProfile.Stable, NativeWorkbenchProfile.Experimental19 })
     {
         var image = new nint(0x140000000L);

@@ -11,7 +11,7 @@ $allowed = @(
     '^scripts/[A-Za-z0-9-]+\.(ps1|mjs)$',
     '^tests/ToolActivity/(Program\.cs|ToolActivity\.csproj)$',
     '^tests/PakSearch/(Program\.cs|PakSearch\.csproj)$',
-    '^tests/WorkbenchProfiles/(Program\.cs|WorkbenchProfiles\.csproj)$',
+    '^tests/WorkbenchProfiles/(Program\.cs|FileSystemBufferTests\.cs|WorkbenchProfiles\.csproj)$',
     '^src/ReforgerMcp/([A-Za-z0-9.]+\.(cs|csproj)|packages\.lock\.json|Ghidra/ReforgerBridge\.java)$',
     '^adapters/workbench/Scripts/WorkbenchGame/RST_(Runtime|Multiplayer|EditorChoices)\.c$',
     '^skills/reforger/(SKILL\.md|references/[a-z-]+\.md|agents/openai\.yaml)$'

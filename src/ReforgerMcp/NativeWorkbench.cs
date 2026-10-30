@@ -113,6 +113,8 @@ internal static partial class NativeWorkbench
                 // but must not prevent Play observation or its normal stop lifecycle.
                 if (ui is null && (Read((nint)profile.Address(exe.BaseAddress, 0x3db65e5), 1)[0] != 0 || (play is null && plugin is null && resourceLeakAssertion is null && Read(app + profile.ApplicationBusyOffset, 1)[0] != 0))) throw new WorkbenchBusyException("Application busy");
                 CheckCode(exe, 0x222c70); CheckCode(qt, 0x20980);
+                if (profile.Experimental && (runtimeSetup is not null || projectContext || world is not null || childPrefab is not null))
+                    CheckCode(exe, 0x1e32f10); // 1.9 filesystem SmallString ownership release.
                 if (suppressResourceLeakAssertion || resourceLeakAssertion is not null)
                 {
                     // Validate the complete assertion branch, not just its owning function entry.
@@ -642,7 +644,7 @@ internal static partial class NativeWorkbench
             {
                 if (field.Kind == "process")
                 {
-                    e.B(0x3d, 0xad, 1, 0, 0x20); e.J(0x85, "pluginDone");
+                    EmitProcessHandleGuard(e, "pluginDone");
                     e.B(0x48, 0x8b, 0x01, 0x48, 0x89, 0x43, 112);
                     if (command.Action == "clear_closed_server")
                     {
@@ -774,7 +776,9 @@ internal static partial class NativeWorkbench
 
         Call(0x1e90630);
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x48, 0x8b, 0x53, 96, 0x48, 0x8b, 0x52, 8,
-            0x4c, 0x8d, 0x83, 0, 4, 0, 0, 0x41, 0xb9, 0xff, 0xff, 0xff, 0xff, 0xff, 0x90, 0x48, 1, 0, 0, 0x84, 0xc0);
+            0x4c, 0x8d, 0x83, 0, 4, 0, 0, 0x41, 0xb9, 0xff, 0xff, 0xff, 0xff);
+        EmitFileSystemBuffer(e, image, 0x148, 560, "worldResolvedPath");
+        e.B(0x84, 0xc0);
         e.J(0x84, "worldRelease");
         e.B(0x48, 0x8d, 0x93, 0, 4, 0, 0, 0xb9, 0xf1, 0, 0, 0);
         e.Label("worldPathBound");

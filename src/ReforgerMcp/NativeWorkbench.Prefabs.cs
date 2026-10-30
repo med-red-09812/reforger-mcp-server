@@ -70,7 +70,9 @@ internal static partial class NativeWorkbench
         // Same mounted-path conversion used by Resource Manager's inherited-file action.
         Call(0x1e90630);
         e.B(0x48, 0x89, 0xc1, 0x48, 0x8b, 0x00, 0x48, 0x8d, 0x93, 0, 4, 0, 0,
-            0x4c, 0x8d, 0x83, 0, 6, 0, 0, 0x45, 0x31, 0xc9, 0xff, 0x90, 0x40, 1, 0, 0);
+            0x4c, 0x8d, 0x83, 0, 6, 0, 0, 0x45, 0x31, 0xc9);
+        EmitFileSystemBuffer(e, image, 0x140, 560, "childResolvedDestination");
+        e.B(0x84, 0xc0); e.J(0x84, "childRelease");
         e.B(0x80, 0xbb, 0, 6, 0, 0, 0); e.J(0x84, "childRelease");
         // App::CreateInheritedFile(sourcePath, mountedDestination, true).
         // Its owner allocates a detached source, sets its ancestor and writes it.
