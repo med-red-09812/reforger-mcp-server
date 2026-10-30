@@ -65,7 +65,7 @@ internal static partial class NativeWorkbench
     private static void EmitChoices(E e, ChoicesCommand command, nint image, nint widgets, nint core)
     {
         void Call(nint address) { e.B(0x48, 0xb8); e.Q(address); e.B(0xff, 0xd0); }
-        void ImportCall(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0x10); }
+        void ImportCall(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0x10); }
         void Load(int offset) { e.B(0x48, 0x8b, 0x8b); e.B(BitConverter.GetBytes(offset)); }
         void Save(int offset) { e.B(0x48, 0x89, 0x83); e.B(BitConverter.GetBytes(offset)); }
         void Address(int offset) { e.B(0x48, 0x8d, 0x8b); e.B(BitConverter.GetBytes(offset)); }
@@ -99,7 +99,7 @@ internal static partial class NativeWorkbench
         e.Label("choicesLoop");
         Load(160); e.B(0x48, 0x3b, 0x8b, 144, 0, 0, 0); e.J(0x83, "choicesFree");
         e.B(0x48, 0x8b, 0x83, 136, 0, 0, 0, 0x48, 0x8b, 0x04, 0xc8); Save(192);
-        e.B(0x48, 0xba); e.Q(image + 0x2d87408);
+        e.B(0x48, 0xba); e.Image(image, 0x2d87408);
         e.B(0x48, 0x39, 0x10); e.J(0x85, "choicesNext");
         if (command.Control != 0)
         {
@@ -108,7 +108,7 @@ internal static partial class NativeWorkbench
         // PropComboBox's QWeakPointer must still own a live StringProperty.
         e.B(0x48, 0x8b, 0x50, 0x28, 0x48, 0x85, 0xd2); e.J(0x84, "choicesNext");
         e.B(0x83, 0x7a, 4, 0); e.J(0x84, "choicesNext");
-        e.B(0x48, 0x8b, 0x50, 0x30, 0x48, 0xb9); e.Q(image + 0x2d95c90); Call(core + 0x38f0);
+        e.B(0x48, 0x8b, 0x50, 0x30, 0x48, 0xb9); e.Image(image, 0x2d95c90); Call(core + 0x38f0);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "choicesNext"); Save(184);
         e.B(0x83, 0xb8, 4, 1, 0, 0, 0); e.J(0x8e, "choicesNext");
         e.B(0x48, 0x8b, 0x80, 248, 0, 0, 0); Save(208);
@@ -155,13 +155,13 @@ internal static partial class NativeWorkbench
             e.B(0x48, 0xff, 0x83, 216, 0, 0, 0); e.J(0x84, "choicesCompare", true);
             e.Label("choicesReplace");
             Load(192); e.B(0xba, 1, 0, 0, 0); Call(core + 0xe5400); e.B(0x88, 0x83, 240, 0, 0, 0);
-            Load(184); e.B(0x48, 0x81, 0xc1, 208, 0, 0, 0); Call(image + 0x47a630);
+            Load(184); e.B(0x48, 0x81, 0xc1, 208, 0, 0, 0); Call((nint)e.Profile.Address(image, 0x47a630));
             e.B(0x48, 0xc7, 0x83, 216, 0, 0, 0, 0, 0, 0, 0);
             e.Label("choicesAdd"); Load(216); e.B(0x48, 0x81, 0xf9); e.B(BitConverter.GetBytes(items.Length)); e.J(0x83, "choicesRestore");
             e.B(0x48, 0x69, 0xc1); e.B(BitConverter.GetBytes(ChoiceEntrySize));
             e.B(0x48, 0x8d, 0x94, 0x03); e.B(BitConverter.GetBytes(ChoicesInputOffset + ChoiceEntryOffset));
             e.B(0x4c, 0x8d, 0x82, 0, 1, 0, 0, 0x4c, 0x8d, 0x8a, 0, 5, 0, 0);
-            Load(184); e.B(0x48, 0x81, 0xc1, 208, 0, 0, 0); Call(image + 0x478730);
+            Load(184); e.B(0x48, 0x81, 0xc1, 208, 0, 0, 0); Call((nint)e.Profile.Address(image, 0x478730));
             e.B(0x48, 0xff, 0x83, 216, 0, 0, 0); e.J(0x84, "choicesAdd", true);
             e.Label("choicesRestore");
             Load(192); e.B(0xba); e.B(BitConverter.GetBytes(Array.FindIndex(items, i => i.Value == command.Current))); Call(widgets + 0x141ba0);

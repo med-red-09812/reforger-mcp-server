@@ -12,13 +12,13 @@ public sealed partial class WorkbenchSession
     internal Task<object> RefreshChoices(int processId, NativeWorkbench.VerificationScope verification, CancellationToken ct) => Run(token =>
     {
         var elapsed = Stopwatch.StartNew();
-        using var process = SelectProcess();
+        using var process = SelectProcess(processId);
         if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; enable choices for the intended process again.");
         var windows = Windows(process.Id);
         var editor = windows.SingleOrDefault(w => w.Current.AutomationId == "Arma4WorkbenchApp.worldEditorMain");
         if (editor is null || windows.Any(IsModal) || windows.Any(w => !w.Current.IsEnabled))
             return new { state = "waiting_for_editor" };
-        var port = configuration.Workbench?.RuntimePort ?? throw new InvalidOperationException("Configure workbench.runtimePort and install the editor adapter.");
+        var port = configuration.WorkbenchFor(process).RuntimePort ?? throw new InvalidOperationException("Configure workbench.runtimePort and install the editor adapter.");
         var window = editor.Current.NativeWindowHandle;
         var observed = (NativeWorkbench.ChoicesResult)NativeWorkbench.Execute(process, token,
             choices: new(window), verification: verification);

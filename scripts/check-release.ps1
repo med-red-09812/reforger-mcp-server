@@ -10,8 +10,10 @@ $allowed = @(
     '^docs/[A-Za-z0-9-]+\.md$',
     '^scripts/[A-Za-z0-9-]+\.(ps1|mjs)$',
     '^tests/ToolActivity/(Program\.cs|ToolActivity\.csproj)$',
+    '^tests/PakSearch/(Program\.cs|PakSearch\.csproj)$',
+    '^tests/WorkbenchProfiles/(Program\.cs|WorkbenchProfiles\.csproj)$',
     '^src/ReforgerMcp/([A-Za-z0-9.]+\.(cs|csproj)|packages\.lock\.json|Ghidra/ReforgerBridge\.java)$',
-    '^adapters/workbench/Scripts/WorkbenchGame/RST_(Runtime|EditorChoices)\.c$',
+    '^adapters/workbench/Scripts/WorkbenchGame/RST_(Runtime|Multiplayer|EditorChoices)\.c$',
     '^skills/reforger/(SKILL\.md|references/[a-z-]+\.md|agents/openai\.yaml)$'
 )
 $problems = [Collections.Generic.List[string]]::new()
@@ -26,9 +28,9 @@ foreach ($relative in $files) {
         continue
     }
     if ((Get-Item -LiteralPath $path).Length -gt 2MB) { $problems.Add("Oversized source file: $relative"); continue }
-    $text = Get-Content -LiteralPath $path -Raw
+    $text = Get-Content -LiteralPath $path -Raw -Encoding utf8
     $normalized = $text.Replace('\\','/').Replace('\','/')
-    if ($privatePrefix -and $normalized.Contains($privatePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($privatePrefix -and $normalized.IndexOf($privatePrefix, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         $problems.Add("Builder's private home path in: $relative")
     }
     if ($text -match '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\bgh[pousr]_[A-Za-z0-9]{30,}\b') {

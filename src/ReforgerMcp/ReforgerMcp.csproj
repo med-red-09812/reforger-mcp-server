@@ -7,11 +7,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="ToolActivity" />
+    <InternalsVisibleTo Include="WorkbenchProfiles" />
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />

@@ -14,7 +14,7 @@ public sealed partial class WorkbenchSession
 {
     private sealed record EditObservation(int ProcessId, long ProcessStart, string World, ulong Id, int Component,
         string Section, NativeWorkbench.TargetResult Result, DateTime Expires, WorkbenchPropertyPath[] Path, string? Property, bool PrefabDefinition);
-    private readonly Dictionary<string, EditObservation> editObservations = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, EditObservation> editObservations = new();
     internal Task<object> QueryEntities(int processId, string expectedWorld, int offset, int limit, CancellationToken ct,
         string action = "query", string? entityId = null, int component = -1, string? nameContains = null,
         string? className = null, string? prefabPath = null, int? subscene = null, int? layer = null, bool? locked = null, int scanLimit = 4096,
@@ -44,9 +44,9 @@ public sealed partial class WorkbenchSession
         else if (string.IsNullOrWhiteSpace(expectedWorld) || !expectedWorld.StartsWith('$') || !expectedWorld.Contains(':') ||
             !expectedWorld.EndsWith(".ent", StringComparison.Ordinal) || expectedWorld.Any(char.IsControl) || Encoding.UTF8.GetByteCount(expectedWorld) > 240)
             throw new ArgumentException("expectedWorld must be the exact loadedWorld, at most 240 UTF-8 bytes.");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed.");
             var windows = Windows(process.Id);
             RequiredWindow(windows, ResourceManager);
@@ -97,11 +97,11 @@ public sealed partial class WorkbenchSession
             string? editToken = null;
             if (action != "query" && result.State == "observed")
             {
-                foreach (var expired in editObservations.Where(x => x.Value.Expires < DateTime.UtcNow).Select(x => x.Key).ToArray()) editObservations.Remove(expired);
-                if (editObservations.Count >= 128) editObservations.Remove(editObservations.Keys.First());
+                foreach (var expired in editObservations.Where(x => x.Value.Expires < DateTime.UtcNow).Select(x => x.Key).ToArray()) editObservations.TryRemove(expired, out _);
+                if (editObservations.Count >= 128) editObservations.TryRemove(editObservations.Keys.First(), out _);
                 editToken = Guid.NewGuid().ToString("N");
-                editObservations.Add(editToken, new(processId, process.StartTime.ToUniversalTime().Ticks, expectedWorld, id,
-                    component, action, result, DateTime.UtcNow.AddMinutes(2), path, property, prefabDefinition));
+                editObservations[editToken] = new(processId, process.StartTime.ToUniversalTime().Ticks, expectedWorld, id,
+                    component, action, result, DateTime.UtcNow.AddMinutes(2), path, property, prefabDefinition);
             }
             if (action != "query") return new
             {
@@ -144,7 +144,9 @@ public sealed partial class WorkbenchSession
     internal Task<object> EditEntity(string editToken, string action, string? key, JsonElement? value, int component, CancellationToken ct, int index = -1)
     {
         if (action is not ("set" or "clear" or "add_component" or "remove_component" or "insert_object" or "remove_object" or "insert_value" or "remove_value")) throw new ArgumentException("Unsupported edit action.");
-        return Start(token =>
+        if (!editObservations.TryGetValue(editToken, out var target)) throw new ArgumentException("Unknown editToken; inspect again.");
+        var processId = target.ProcessId;
+        return Start(processId, token =>
         {
             if (!editObservations.TryGetValue(editToken, out var observation) || observation.Expires < DateTime.UtcNow)
                 throw new ArgumentException("Expired or unknown editToken. Inspect again; never replay an uncertain mutation.");
@@ -218,7 +220,7 @@ public sealed partial class WorkbenchSession
             }
             if (Encoding.UTF8.GetByteCount(name) > 240 || Encoding.UTF8.GetByteCount(serialized) > 1023 || serialized.Contains('\0'))
                 throw new ArgumentException("Property name limit is 240 UTF-8 bytes and value limit is 1023 bytes without NUL.");
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != observation.ProcessId || process.StartTime.ToUniversalTime().Ticks != observation.ProcessStart)
                 throw new InvalidOperationException("Workbench process changed; inspect again.");
             var windows = Windows(process.Id);

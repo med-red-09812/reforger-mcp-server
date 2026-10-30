@@ -37,5 +37,7 @@ public sealed class WorkbenchTools(Workbench workbench, PakStore store)
     [Description("Launch existing absolute .gproj; refuses if Workbench is running. Started process does not establish project readiness.")]
     public object OpenProject(
         [Description("Absolute path to the addon .gproj file; paths with spaces are supported.")] string projectPath,
-        CancellationToken cancellationToken = default) => Report(() => workbench.OpenProject(projectPath, cancellationToken));
+        CancellationToken cancellationToken = default,
+        [Description("Configured installation label, e.g. stable or experimental; required when several are configured.")] string? installation = null)
+        => Report(() => workbench.OpenProject(projectPath, cancellationToken, installation));
 }

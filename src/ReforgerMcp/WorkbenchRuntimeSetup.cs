@@ -102,9 +102,9 @@ public sealed partial class WorkbenchSession
         if (action is not ("status" or "install" or "enable" or "configure")) throw new ArgumentException("action must be status, install, enable or configure.");
         if (action == "configure" ? port is null or < 1 or > 65535 : port is not null)
             throw new ArgumentException("Only configure accepts a required port from 1 to 65535.");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed.");
             var observedWindows = Windows(process.Id);
             RequiredWindow(observedWindows, ResourceManager);
@@ -119,7 +119,7 @@ public sealed partial class WorkbenchSession
             var target = RuntimeAdapter.PathIn(native.ProfileDirectory);
             RuntimeAdapter.CheckPath(target);
             var installed = File.Exists(target) && RuntimeAdapter.Hash(target) == RuntimeAdapter.InstalledHash;
-            var configuredPort = configuration.Workbench!.RuntimePort;
+            var configuredPort = configuration.WorkbenchFor(process).RuntimePort;
             if (action == "configure" && configuredPort != port)
                 throw new InvalidOperationException("Set workbench.runtimePort to the deliberately requested port before configuring Workbench. Nothing changed.");
             if (action == "configure") RuntimeNet.VerifyPortAvailableOrOwned(port!.Value, process.Id);

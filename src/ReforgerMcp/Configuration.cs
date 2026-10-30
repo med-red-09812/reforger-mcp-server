@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 
 namespace ReforgerMcp;
 
@@ -13,6 +14,7 @@ public sealed record Configuration
     public Dictionary<string, string> PakDirectories { get; init; } = [];
     public Dictionary<string, string> UnpackedDirectories { get; init; } = [];
     public WorkbenchConfiguration? Workbench { get; init; }
+    public Dictionary<string, WorkbenchConfiguration> Workbenches { get; init; } = [];
     public LocalHttpConfiguration? LocalHttp { get; init; }
     public Dictionary<string, string> CaptureExecutables { get; init; } = [];
     public Dictionary<string, string> LogDirectories { get; init; } = [];
@@ -27,6 +29,26 @@ public sealed record Configuration
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
     };
 
+    [JsonIgnore]
+    public IEnumerable<KeyValuePair<string, WorkbenchConfiguration>> WorkbenchEntries =>
+        (Workbench is null ? Enumerable.Empty<KeyValuePair<string, WorkbenchConfiguration>>() :
+            [new KeyValuePair<string, WorkbenchConfiguration>("workbench", Workbench)]).Concat(Workbenches);
+
+    public WorkbenchConfiguration SelectWorkbench(string? installation = null)
+    {
+        var entries = WorkbenchEntries.ToArray();
+        if (installation is not null)
+            return entries.SingleOrDefault(p => p.Key == installation).Value
+                ?? throw new InvalidOperationException("Unknown Workbench installation; inspect workbench_status.");
+        return entries.Length == 1 ? entries[0].Value : throw new InvalidOperationException(
+            entries.Length == 0 ? "Workbench is not configured." : "Select an explicit Workbench installation; Stable and Experimental are configured separately.");
+    }
+
+    public WorkbenchConfiguration WorkbenchFor(Process process) => WorkbenchEntries.Select(p => p.Value)
+        .SingleOrDefault(w => string.Equals(w.Executable, process.MainModule?.FileName, StringComparison.OrdinalIgnoreCase)
+            && (w.ProcessId is null || w.ProcessId == process.Id && w.ProcessStartedUtc?.UtcTicks == process.StartTime.ToUniversalTime().Ticks))
+        ?? throw new InvalidOperationException("Process is not a configured Workbench identity; no other installation was selected.");
+
     public static Configuration Load(string path)
     {
         if (!OperatingSystem.IsWindows()) throw new InvalidOperationException("This release supports Windows x64 Reforger executables only.");
@@ -34,7 +56,7 @@ public sealed record Configuration
         var config = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(configPath), Json)
             ?? throw new InvalidDataException("Empty configuration.");
         var directory = Path.GetDirectoryName(configPath)!;
-        if (config.Targets is null || config.PakDirectories is null || config.UnpackedDirectories is null || config.CaptureExecutables is null || config.LogDirectories is null)
+        if (config.Targets is null || config.PakDirectories is null || config.UnpackedDirectories is null || config.CaptureExecutables is null || config.LogDirectories is null || config.Workbenches is null)
             throw new InvalidDataException("targets, pakDirectories, captureExecutables and logDirectories must be JSON objects, not null.");
         config = config with
         {
@@ -52,13 +74,26 @@ public sealed record Configuration
             UnpackedDirectories = config.UnpackedDirectories.ToDictionary(p => p.Key, p => ResolvePath(p.Value, directory, "unpackedDirectories." + p.Key)),
             CaptureExecutables = config.CaptureExecutables.ToDictionary(p => p.Key, p => ResolvePath(p.Value, directory, "captureExecutables." + p.Key)),
             LogDirectories = config.LogDirectories.ToDictionary(p => p.Key, p => ResolvePath(p.Value, directory, "logDirectories." + p.Key)),
-            Workbench = config.Workbench is null ? null : config.Workbench with
-            {
-                Executable = ResolvePath(config.Workbench.Executable, directory, "workbench.executable"),
-                AddonDirectories = (config.Workbench.AddonDirectories ?? throw new InvalidDataException("workbench.addonDirectories must be an array."))
-                    .Select(p => ResolvePath(p, directory, "workbench.addonDirectories")).ToArray()
-            }
+            Workbench = config.Workbench is null ? null : ResolveWorkbench(config.Workbench, "workbench"),
+            Workbenches = config.Workbenches.ToDictionary(p => p.Key, p => ResolveWorkbench(p.Value, "workbenches." + p.Key))
         };
+        WorkbenchConfiguration ResolveWorkbench(WorkbenchConfiguration value, string field) => value with
+        {
+            Executable = ResolvePath(value.Executable, directory, field + ".executable"),
+            ProfileDirectory = value.ProfileDirectory is null ? null : ResolvePath(value.ProfileDirectory, directory, field + ".profileDirectory"),
+            LogDirectory = value.LogDirectory is null ? null : ResolvePath(value.LogDirectory, directory, field + ".logDirectory"),
+            AddonDirectories = (value.AddonDirectories ?? throw new InvalidDataException(field + ".addonDirectories must be an array."))
+                .Select(p => ResolvePath(p, directory, field + ".addonDirectories")).ToArray()
+        };
+        if (config.Workbenches.Keys.Any(k => !ValidLabel(k) || k.Equals("workbench", StringComparison.OrdinalIgnoreCase)) ||
+            config.Workbenches.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != config.Workbenches.Count)
+            throw new InvalidDataException("workbenches labels must be unique ASCII letters/digits/hyphens/underscores (1-64), excluding reserved 'workbench'.");
+        var profilePaths = config.WorkbenchEntries.Select(p => p.Value.ProfileDirectory).Where(p => p is not null).ToArray();
+        if (profilePaths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != profilePaths.Length)
+            throw new InvalidDataException("Configured Workbench profile directories must be distinct across installations.");
+        var captureLabels = config.CaptureExecutables.Keys.Concat(config.WorkbenchEntries.Select(p => p.Key == "workbench" ? p.Key : "workbench-" + p.Key)).ToArray();
+        if (captureLabels.Distinct(StringComparer.OrdinalIgnoreCase).Count() != captureLabels.Length)
+            throw new InvalidDataException("captureExecutables labels conflict with a configured Workbench capture label.");
         if (config.LogDirectories.Keys.Any(k => k.Length is < 1 or > 64 || k.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_'))) ||
             config.LogDirectories.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != config.LogDirectories.Count)
             throw new InvalidDataException("logDirectories labels must be unique ASCII letters/digits/hyphens/underscores (1-64).");
@@ -68,10 +103,10 @@ public sealed record Configuration
             throw new InvalidDataException("captureExecutables labels must be unique ASCII letters/digits/hyphens/underscores (1-64), excluding reserved 'workbench'.");
         if (config.CaptureExecutables.Values.Any(p => !Path.GetExtension(p).Equals(".exe", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("captureExecutables values must be .exe paths.");
-        var capturePaths = config.CaptureExecutables.Values.Concat(config.Workbench is null ? [] : new[] { config.Workbench.Executable }).ToArray();
+        var capturePaths = config.CaptureExecutables.Values.Concat(config.WorkbenchEntries.Select(p => p.Value.Executable)).ToArray();
         if (capturePaths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != capturePaths.Length)
             throw new InvalidDataException("Each capture executable path must have one label; workbench.executable is already included.");
-        if (config.Workbench is { } workbench)
+        foreach (var (_, workbench) in config.WorkbenchEntries)
         {
             if ((workbench.ProcessId is null) != (workbench.ProcessStartedUtc is null) || workbench.ProcessId is <= 0)
                 throw new InvalidDataException("workbench.processId and processStartedUtc must be supplied together with a positive PID.");
@@ -87,8 +122,8 @@ public sealed record Configuration
             throw new InvalidDataException("localHttp.port must be between 1 and 65535.");
         foreach (var p in new[] { config.DataDirectory }.Concat(runtimePaths).Concat(config.Targets.Values).Concat(config.PakDirectories.Values))
             if (!Path.IsPathFullyQualified(p)) throw new InvalidDataException("Configuration paths must be absolute: " + p);
-        if (config.Targets.Keys.Any(k => !new[] { "game", "diagnostic", "workbench", "server" }.Contains(k)))
-            throw new InvalidDataException("Native targets must be game, diagnostic, workbench, server.");
+        if (config.Targets.Keys.Any(k => !ValidLabel(k)) || config.Targets.Keys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != config.Targets.Count)
+            throw new InvalidDataException("Native target IDs must be unique ASCII letters/digits/hyphens/underscores (1-64).");
         if (config.PakDirectories.Keys.Any(k => k.Length is < 1 or > 64 || k.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_'))))
             throw new InvalidDataException("PAK source IDs must be 1-64 ASCII letters, digits, hyphens or underscores.");
         foreach (var id in config.PakDirectories.Keys) PakArchive.ValidatePath(id);
@@ -120,6 +155,8 @@ public sealed record Configuration
             throw new InvalidDataException("Ghidra project paths cannot contain hidden dot-prefixed components. Choose a different dataDirectory.");
         return config;
     }
+
+    private static bool ValidLabel(string value) => value.Length is >= 1 and <= 64 && value.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 
     // Resolve only explicitly supplied locations. Never guess a Steam library or substitute
     // a different product when a configured path is absent.
@@ -161,11 +198,11 @@ public sealed record Configuration
         foreach (var item in config.Targets) Add("targets." + item.Key, item.Value, true);
         foreach (var item in config.CaptureExecutables) Add("captureExecutables." + item.Key, item.Value, true);
         foreach (var item in config.LogDirectories) Add("logDirectories." + item.Key, item.Value);
-        if (config.Workbench is { } workbench)
+        foreach (var (label, workbench) in config.WorkbenchEntries)
         {
-            Add("workbench.executable", workbench.Executable, true);
+            Add(label + ".executable", workbench.Executable, true);
             for (var i = 0; i < workbench.AddonDirectories.Length; i++)
-                Add($"workbench.addonDirectories[{i}]", workbench.AddonDirectories[i]);
+                Add($"{label}.addonDirectories[{i}]", workbench.AddonDirectories[i]);
         }
         if (config.Targets.Count > 0)
         {
@@ -186,6 +223,8 @@ public sealed record LocalHttpConfiguration
 public sealed record WorkbenchConfiguration
 {
     public required string Executable { get; init; }
+    public string? ProfileDirectory { get; init; }
+    public string? LogDirectory { get; init; }
     public int? ProcessId { get; init; }
     public DateTimeOffset? ProcessStartedUtc { get; init; }
     public string[] AddonDirectories { get; init; } = [];

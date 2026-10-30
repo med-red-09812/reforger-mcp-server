@@ -37,7 +37,7 @@ internal static partial class NativeWorkbench
     private static void EmitProjectContext(E e, nint image)
     {
         void I(int n) => e.B(BitConverter.GetBytes(n));
-        void Call(int rva) { e.B(0x48, 0xb8); e.Q(image + rva); e.B(0xff, 0xd0); }
+        void Call(int rva) { e.B(0x48, 0xb8); e.Image(image, rva); e.B(0xff, 0xd0); }
         Call(0x1ea3f00);
         e.B(0x48, 0x85, 0xc0); e.J(0x84, "projectInvalid");
         e.B(0x48, 0x89, 0x43, 96);

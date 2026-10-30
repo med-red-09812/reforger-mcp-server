@@ -46,7 +46,7 @@ public sealed class WindowCapture(Configuration configuration) : IDisposable
     public object List()
     {
         var configured = new Dictionary<string, string>(configuration.CaptureExecutables);
-        if (configuration.Workbench is { } wb) configured.Add("workbench", wb.Executable);
+        foreach (var (label, wb) in configuration.WorkbenchEntries) configured.Add(label == "workbench" ? label : "workbench-" + label, wb.Executable);
         var next = new Dictionary<string, Selection>();
         var unavailable = new List<object>();
         var supported = GraphicsCaptureSession.IsSupported();

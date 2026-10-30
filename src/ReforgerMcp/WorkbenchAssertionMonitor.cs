@@ -12,7 +12,7 @@ internal sealed class WorkbenchAssertionMonitor(Configuration configuration, Wor
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (configuration.Workbench is null) return;
+        if (!configuration.WorkbenchEntries.Any()) return;
         (int Pid, long Started)? finished = null;
         object? finishedResult = null;
         string? previous = null;

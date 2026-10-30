@@ -21,9 +21,9 @@ public sealed partial class WorkbenchSession
             throw new ArgumentException("Use an existing destination directory and a path of at most 240 UTF-8 bytes.");
         if (File.Exists(destination) || Directory.Exists(destination) || File.Exists(destination + ".meta") || Directory.Exists(destination + ".meta"))
             throw new ArgumentException("Destination prefab or metadata already exists; inherited creation never intentionally overwrites.");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed.");
             var windows = Windows(process.Id);
             RequiredWindow(windows, ResourceManager);

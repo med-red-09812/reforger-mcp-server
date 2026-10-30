@@ -14,9 +14,9 @@ public sealed partial class WorkbenchSession
         if (action is not ("status" or "start" or "stop" or "configure" or "get" or "set")) throw new ArgumentException("Unsupported multiplayer action.");
         if (processId <= 0) throw new ArgumentException("processId must come from workbench_script_status.");
         if (action == "set" && string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("Explain the reason for changing the user's current setting.");
-        return Start(token =>
+        return Start(processId, token =>
         {
-            using var process = SelectProcess();
+            using var process = SelectProcess(processId);
             if (process.Id != processId) throw new InvalidOperationException("Workbench process changed; inspect workbench_script_status.");
             using var verification = new NativeWorkbench.VerificationScope();
             var windows = Windows(process.Id);
@@ -89,7 +89,7 @@ public sealed partial class WorkbenchSession
             {
                 if (tool == "dedicated")
                 {
-                    var port = configuration.Workbench!.RuntimePort
+                    var port = configuration.WorkbenchFor(process).RuntimePort
                         ?? throw new InvalidOperationException("Dedicated launch requires the managed adapter. Configure workbench.runtimePort and run workbench_runtime_setup install.");
                     RuntimeNet.VerifyListener(port, process.Id);
                     var profile = (NativeRuntimeSetup)NativeWorkbench.Execute(process, token, runtimeSetup: false);
